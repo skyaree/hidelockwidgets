@@ -12,8 +12,8 @@ android {
         applicationId = "com.squeeare.hidelockwidgets"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "3.3-v7-functions-fixed"
+        versionCode = 7
+        versionName = "3.4-v8-xposed-signature-fix"
     }
 
     buildTypes {
