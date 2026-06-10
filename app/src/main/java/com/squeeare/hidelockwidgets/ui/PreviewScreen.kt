@@ -1,6 +1,5 @@
 package com.squeeare.hidelockwidgets.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,8 +87,7 @@ private fun RowScope.LayerChip(
 private fun LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
     ElevatedCard(
         shape = RoundedCornerShape(34.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Box(
             modifier = Modifier.padding(14.dp),
