@@ -51,6 +51,7 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String TAG_WIDGET_PREFIX = "hidelockwidgets_widget_";
     private static final String TAG_DEPTH_BACKGROUND = "hidelockwidgets_depth_background";
     private static final String TAG_DEPTH_FOREGROUND = "hidelockwidgets_depth_foreground";
+    private static final String TAG_CANVAS = "hidelockwidgets_fullscreen_canvas";
 
     private static AppWidgetHost systemUiWidgetHost;
     private static final Map<Integer, Integer> runtimeWidgetIds = new HashMap<>();
@@ -148,26 +149,25 @@ public class MainHook implements IXposedHookLoadPackage {
 
     private static void addEverything(View root, FullConfig config) {
         try {
-            Context context = root.getContext();
-            ViewGroup parent = getStatusViewContainer(root);
-            if (parent == null) return;
-            disableClipping(parent);
+            ViewGroup canvas = getFullscreenCanvas(root);
+            if (canvas == null) return;
+            disableClipping(canvas);
 
             if (config.depthEnabled && config.backgroundPath != null && config.backgroundPath.length() > 0) {
-                addImageLayer(context, parent, TAG_DEPTH_BACKGROUND, config.backgroundPath, config.backgroundX, config.backgroundY, config.backgroundScale, true);
+                addImageLayer(root.getContext(), canvas, TAG_DEPTH_BACKGROUND, config.backgroundPath, config.backgroundX, config.backgroundY, config.backgroundScale, true);
             } else {
-                removeByTag(parent, TAG_DEPTH_BACKGROUND);
+                removeByTag(canvas, TAG_DEPTH_BACKGROUND);
             }
 
             if (config.widgetsEnabled) {
-                for (WidgetConfig w : config.widgets) addWidgetLayer(context, parent, w);
+                for (WidgetConfig w : config.widgets) addWidgetLayer(root.getContext(), canvas, w);
             }
-            removeStaleWidgets(parent, config.widgets);
+            removeStaleWidgets(canvas, config.widgets);
 
             if (config.depthEnabled && config.foregroundPath != null && config.foregroundPath.length() > 0) {
-                addImageLayer(context, parent, TAG_DEPTH_FOREGROUND, config.foregroundPath, config.foregroundX, config.foregroundY, config.foregroundScale, false);
+                addImageLayer(root.getContext(), canvas, TAG_DEPTH_FOREGROUND, config.foregroundPath, config.foregroundX, config.foregroundY, config.foregroundScale, false);
             } else {
-                removeByTag(parent, TAG_DEPTH_FOREGROUND);
+                removeByTag(canvas, TAG_DEPTH_FOREGROUND);
             }
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": addEverything error " + t);
@@ -506,6 +506,46 @@ public class MainHook implements IXposedHookLoadPackage {
                 ViewParent p = v.getParent();
                 if (p instanceof ViewGroup) ((ViewGroup) p).removeView(v);
                 v = parent.findViewWithTag(tag);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static ViewGroup getFullscreenCanvas(View root) {
+        try {
+            View hostView = root.getRootView();
+            if (!(hostView instanceof ViewGroup)) {
+                if (root instanceof ViewGroup) return (ViewGroup) root;
+                return null;
+            }
+            ViewGroup host = (ViewGroup) hostView;
+            disableClippingDeep(host);
+            View found = host.findViewWithTag(TAG_CANVAS);
+            if (found instanceof ViewGroup) return (ViewGroup) found;
+
+            FrameLayout canvas = new FrameLayout(root.getContext());
+            canvas.setTag(TAG_CANVAS);
+            canvas.setClipChildren(false);
+            canvas.setClipToPadding(false);
+            canvas.setClickable(false);
+            canvas.setFocusable(false);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            lp.gravity = Gravity.TOP | Gravity.START;
+            host.addView(canvas, lp);
+            return canvas;
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": getFullscreenCanvas error " + t);
+            if (root instanceof ViewGroup) return (ViewGroup) root;
+            return null;
+        }
+    }
+
+    private static void disableClippingDeep(View view) {
+        try {
+            View current = view;
+            while (current != null) {
+                if (current instanceof ViewGroup) disableClipping((ViewGroup) current);
+                ViewParent parent = current.getParent();
+                current = parent instanceof View ? (View) parent : null;
             }
         } catch (Throwable ignored) {}
     }
