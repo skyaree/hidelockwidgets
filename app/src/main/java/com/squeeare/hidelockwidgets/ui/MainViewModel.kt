@@ -3,6 +3,7 @@ package com.squeeare.hidelockwidgets.ui
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
+import com.squeeare.hidelockwidgets.data.AvailableWidget
 import com.squeeare.hidelockwidgets.data.ConfigRepository
 import com.squeeare.hidelockwidgets.data.DepthConfig
 import com.squeeare.hidelockwidgets.data.WidgetConfig
@@ -10,93 +11,172 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
-enum class AppPage { SETTINGS, PREVIEW }
+enum class AppPage { HOME, PREVIEW }
 enum class ActiveLayer { BACKGROUND, WIDGET, FOREGROUND }
 
 data class MainUiState(
-    val page: AppPage = AppPage.PREVIEW,
+    val page: AppPage = AppPage.HOME,
     val activeLayer: ActiveLayer = ActiveLayer.WIDGET,
     val selectedWidgetId: Int? = null,
     val config: DepthConfig = DepthConfig(),
+    val availableWidgets: List<AvailableWidget> = emptyList(),
+    val widgetPickerOpen: Boolean = false,
+    val currentWidgetsOpen: Boolean = true,
     val message: String? = null
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = ConfigRepository(app)
-    private val _state = MutableStateFlow(MainUiState(config = seed(repo.load())))
+    private val _state = MutableStateFlow(
+        MainUiState(
+            config = repo.load(),
+            availableWidgets = repo.getInstalledWidgets()
+        )
+    )
     val state: StateFlow<MainUiState> = _state
 
-    private fun seed(c: DepthConfig): DepthConfig = if (c.widgets.isNotEmpty()) c else c.copy(widgets = listOf(
-        WidgetConfig(id = 1, title = "Яндекс Музыка", yDp = 120)
-    ))
-
     fun setPage(page: AppPage) = _state.update { it.copy(page = page) }
+    fun clearMessage() = _state.update { it.copy(message = null) }
+
+    fun refreshProviders() {
+        _state.update { it.copy(availableWidgets = repo.getInstalledWidgets(), message = "Список виджетов обновлён") }
+    }
+
+    fun toggleWidgetPicker() = _state.update { it.copy(widgetPickerOpen = !it.widgetPickerOpen) }
+    fun closeWidgetPicker() = _state.update { it.copy(widgetPickerOpen = false) }
+    fun toggleCurrentWidgets() = _state.update { it.copy(currentWidgetsOpen = !it.currentWidgetsOpen) }
+
     fun setActiveLayer(layer: ActiveLayer) = _state.update { it.copy(activeLayer = layer) }
-    fun selectWidget(id: Int) = _state.update { it.copy(activeLayer = ActiveLayer.WIDGET, selectedWidgetId = id) }
+    fun selectWidget(id: Int) = _state.update { it.copy(activeLayer = ActiveLayer.WIDGET, selectedWidgetId = id, page = AppPage.PREVIEW) }
 
-    fun toggleWidgets(v: Boolean) = update { copy(widgetsEnabled = v) }
-    fun toggleDepth(v: Boolean) = update { copy(depthEnabled = v) }
-    fun toggleHideClock(v: Boolean) = update { copy(hideClock = v) }
+    fun toggleHideClock(value: Boolean) = updateConfig { copy(hideClock = value) }
+    fun toggleDepth(value: Boolean) = updateConfig { copy(depthEnabled = value) }
+    fun toggleWidgets(value: Boolean) = updateConfig { copy(widgetsEnabled = value) }
 
-    fun addYandexRecent() = addWidget("Яндекс Recently", "ru.yandex.music/ru.yandex.music.ui.widget.WidgetRecentlyRectangleReceiver")
-    fun addYandexRectangle() = addWidget("Яндекс Rectangle", "ru.yandex.music/ru.yandex.music.ui.widget.WidgetRectangleReceiver")
-    fun addCustomWidget() = addWidget("Custom widget", "")
+    fun importBackground(uri: Uri) {
+        val path = repo.importImage(uri, "depth_background")
+        if (path != null) updateConfig("Задний план выбран") { copy(backgroundPath = path) }
+        else show("Не удалось выбрать задний план")
+    }
 
-    private fun addWidget(title: String, provider: String) {
+    fun importForeground(uri: Uri) {
+        val path = repo.importImage(uri, "depth_foreground")
+        if (path != null) updateConfig("Передний план выбран") { copy(foregroundPath = path) }
+        else show("Не удалось выбрать передний план")
+    }
+
+    fun addWidget(widget: AvailableWidget) {
         val nextId = ((_state.value.config.widgets.maxOfOrNull { it.id } ?: 0) + 1)
-        val widget = WidgetConfig(id = nextId, title = title, provider = provider, yDp = 92 + (nextId - 1) * 96)
-        update { copy(widgets = widgets + widget) }
-        _state.update { it.copy(activeLayer = ActiveLayer.WIDGET, selectedWidgetId = nextId, message = "Виджет добавлен") }
+        val startY = 120 + (_state.value.config.widgets.size * 34)
+        val newWidget = WidgetConfig(
+            id = nextId,
+            title = widget.title,
+            provider = widget.provider,
+            x = 0,
+            y = startY,
+            width = widget.minWidth.coerceIn(180, 360),
+            height = widget.minHeight.coerceIn(80, 220),
+            scale = 100,
+            live = true,
+            visible = true
+        )
+        _state.update { state ->
+            val updated = state.config.copy(widgets = state.config.widgets + newWidget)
+            repo.save(updated)
+            state.copy(
+                config = updated,
+                selectedWidgetId = nextId,
+                activeLayer = ActiveLayer.WIDGET,
+                widgetPickerOpen = false,
+                page = AppPage.PREVIEW,
+                message = "Виджет добавлен на превью"
+            )
+        }
     }
 
-    fun deleteSelectedWidget() {
+    fun deleteSelected() {
         val id = _state.value.selectedWidgetId ?: return
-        update { copy(widgets = widgets.filterNot { it.id == id }) }
-        _state.update { it.copy(selectedWidgetId = null, message = "Виджет удалён") }
+        _state.update { state ->
+            val updatedWidgets = state.config.widgets.filterNot { it.id == id }
+            val updated = state.config.copy(widgets = updatedWidgets)
+            repo.save(updated)
+            state.copy(config = updated, selectedWidgetId = updatedWidgets.firstOrNull()?.id, message = "Удалено")
+        }
     }
 
-    fun updateSelectedProvider(provider: String) = updateWidget { copy(provider = provider) }
-    fun updateSelectedSize(w: Int, h: Int) = updateWidget { copy(widthDp = w.coerceIn(80, 480), heightDp = h.coerceIn(40, 500)) }
-    fun updateSelectedScale(scale: Int) = updateWidget { copy(scalePercent = scale.coerceIn(30, 200)) }
+    fun resetWidgets() {
+        updateConfig("Все виджеты сброшены") { copy(widgets = emptyList()) }
+        _state.update { it.copy(selectedWidgetId = null) }
+    }
 
-    fun moveActive(dx: Float, dy: Float) {
-        when (_state.value.activeLayer) {
-            ActiveLayer.BACKGROUND -> update { copy(backgroundOffsetX = backgroundOffsetX + dx, backgroundOffsetY = backgroundOffsetY + dy) }
-            ActiveLayer.FOREGROUND -> update { copy(foregroundOffsetX = foregroundOffsetX + dx, foregroundOffsetY = foregroundOffsetY + dy) }
-            ActiveLayer.WIDGET -> updateWidget { copy(xDp = xDp + dx.toInt(), yDp = yDp + dy.toInt()) }
+    fun resetAll() {
+        val empty = DepthConfig()
+        repo.save(empty)
+        _state.update { it.copy(config = empty, selectedWidgetId = null, activeLayer = ActiveLayer.WIDGET, message = "Настройки сброшены") }
+    }
+
+    fun moveActive(dxPx: Float, dyPx: Float) {
+        val dx = dxPx.toInt()
+        val dy = dyPx.toInt()
+        if (dx == 0 && dy == 0) return
+        val s = _state.value
+        when (s.activeLayer) {
+            ActiveLayer.BACKGROUND -> updateConfig { copy(backgroundX = backgroundX + dx, backgroundY = backgroundY + dy) }
+            ActiveLayer.FOREGROUND -> updateConfig { copy(foregroundX = foregroundX + dx, foregroundY = foregroundY + dy) }
+            ActiveLayer.WIDGET -> {
+                val id = s.selectedWidgetId ?: s.config.widgets.firstOrNull()?.id ?: return
+                updateWidget(id) { copy(x = x + dx, y = y + dy) }
+            }
         }
     }
 
     fun scaleActive(factor: Float) {
-        when (_state.value.activeLayer) {
-            ActiveLayer.BACKGROUND -> update { copy(backgroundScale = (backgroundScale * factor).coerceIn(0.35f, 4f)) }
-            ActiveLayer.FOREGROUND -> update { copy(foregroundScale = (foregroundScale * factor).coerceIn(0.35f, 4f)) }
-            ActiveLayer.WIDGET -> updateWidget { copy(scalePercent = (scalePercent * factor).toInt().coerceIn(30, 200)) }
+        if (factor == 1f) return
+        val percentDelta = ((factor - 1f) * 100f).toInt()
+        if (percentDelta == 0) return
+        val s = _state.value
+        when (s.activeLayer) {
+            ActiveLayer.BACKGROUND -> updateConfig { copy(backgroundScale = (backgroundScale + percentDelta).coerceIn(30, 400)) }
+            ActiveLayer.FOREGROUND -> updateConfig { copy(foregroundScale = (foregroundScale + percentDelta).coerceIn(30, 400)) }
+            ActiveLayer.WIDGET -> {
+                val id = s.selectedWidgetId ?: s.config.widgets.firstOrNull()?.id ?: return
+                updateWidget(id) { copy(scale = (scale + percentDelta).coerceIn(40, 250)) }
+            }
         }
     }
 
-    fun importBackground(uri: Uri) {
-        repo.importImage(uri, "depth_background")?.let { path -> update { copy(backgroundPath = path) } }
-    }
-    fun importForeground(uri: Uri) {
-        repo.importImage(uri, "depth_foreground")?.let { path -> update { copy(foregroundPath = path) } }
-    }
+    fun nudgeWidget(id: Int, dx: Int, dy: Int) = updateWidget(id) { copy(x = x + dx, y = y + dy) }
+    fun resizeWidget(id: Int, dw: Int, dh: Int) = updateWidget(id) { copy(width = (width + dw).coerceIn(80, 600), height = (height + dh).coerceIn(50, 500)) }
+    fun scaleWidget(id: Int, delta: Int) = updateWidget(id) { copy(scale = (scale + delta).coerceIn(40, 250)) }
 
-    fun save() { repo.save(_state.value.config); _state.update { it.copy(message = "Сохранено") } }
     fun apply() {
-        repo.save(_state.value.config)
-        val ok = repo.applyLegacyConfigWithRoot(_state.value.config)
-        _state.update { it.copy(message = if (ok) "Применено. SystemUI перезапущен" else "Root apply не сработал") }
-    }
-    fun clearMessage() = _state.update { it.copy(message = null) }
-
-    private fun update(block: DepthConfig.() -> DepthConfig) {
-        _state.update { s -> s.copy(config = s.config.block()) }
-        repo.save(_state.value.config)
+        val ok = repo.applyWithRoot(_state.value.config)
+        show(if (ok) "Применено. SystemUI перезапущен" else "Не удалось применить через su")
     }
 
-    private fun updateWidget(block: WidgetConfig.() -> WidgetConfig) {
-        val id = _state.value.selectedWidgetId ?: _state.value.config.widgets.firstOrNull()?.id ?: return
-        update { copy(widgets = widgets.map { if (it.id == id) it.block() else it }) }
+    fun restartSystemUi() {
+        show(if (repo.restartSystemUi()) "SystemUI перезапущен" else "Не удалось перезапустить SystemUI")
     }
+
+    fun softRestart() {
+        show(if (repo.softRestart()) "Soft restart выполнен" else "Soft restart не выполнен")
+    }
+
+    private fun updateWidget(id: Int, block: WidgetConfig.() -> WidgetConfig) {
+        _state.update { state ->
+            val updated = state.config.copy(widgets = state.config.widgets.map { if (it.id == id) it.block() else it })
+            repo.save(updated)
+            state.copy(config = updated, selectedWidgetId = id)
+        }
+    }
+
+    private fun updateConfig(message: String? = null, block: DepthConfig.() -> DepthConfig) {
+        _state.update { state ->
+            val updated = state.config.block()
+            repo.save(updated)
+            state.copy(config = updated, message = message ?: state.message)
+        }
+    }
+
+    private fun show(message: String) = _state.update { it.copy(message = message) }
 }
