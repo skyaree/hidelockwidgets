@@ -149,6 +149,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun resizeWidget(id: Int, dw: Int, dh: Int) = updateWidget(id) { copy(width = (width + dw).coerceIn(80, 600), height = (height + dh).coerceIn(50, 500)) }
     fun scaleWidget(id: Int, delta: Int) = updateWidget(id) { copy(scale = (scale + delta).coerceIn(40, 250)) }
 
+
+
+    fun selectBackground() {
+        _state.update { it.copy(activeLayer = ActiveLayer.BACKGROUND, selectedWidgetId = null) }
+    }
+
+    fun selectForeground() {
+        _state.update { it.copy(activeLayer = ActiveLayer.FOREGROUND, selectedWidgetId = null) }
+    }
+
+    fun nudgeActive(dx: Int, dy: Int) {
+        when (_state.value.activeLayer) {
+            ActiveLayer.BACKGROUND -> updateConfig { copy(backgroundX = backgroundX + dx, backgroundY = backgroundY + dy) }
+            ActiveLayer.FOREGROUND -> updateConfig { copy(foregroundX = foregroundX + dx, foregroundY = foregroundY + dy) }
+            ActiveLayer.WIDGET -> {
+                val id = _state.value.selectedWidgetId ?: return
+                nudgeWidget(id, dx, dy)
+            }
+        }
+    }
+
+    fun scaleActiveDelta(delta: Int) {
+        when (_state.value.activeLayer) {
+            ActiveLayer.BACKGROUND -> updateConfig { copy(backgroundScale = (backgroundScale + delta).coerceIn(30, 400)) }
+            ActiveLayer.FOREGROUND -> updateConfig { copy(foregroundScale = (foregroundScale + delta).coerceIn(30, 400)) }
+            ActiveLayer.WIDGET -> {
+                val id = _state.value.selectedWidgetId ?: return
+                scaleWidget(id, delta)
+            }
+        }
+    }
+
+    fun resizeActive(dw: Int, dh: Int) {
+        if (_state.value.activeLayer != ActiveLayer.WIDGET) return
+        val id = _state.value.selectedWidgetId ?: return
+        resizeWidget(id, dw, dh)
+    }
+
+    fun deleteActive() {
+        when (_state.value.activeLayer) {
+            ActiveLayer.BACKGROUND -> updateConfig("Задний план удалён") { copy(backgroundPath = null, backgroundX = 0, backgroundY = 0, backgroundScale = 100) }
+            ActiveLayer.FOREGROUND -> updateConfig("Передний план удалён") { copy(foregroundPath = null, foregroundX = 0, foregroundY = 0, foregroundScale = 100) }
+            ActiveLayer.WIDGET -> deleteSelected()
+        }
+    }
+
     fun apply() {
         val ok = repo.applyWithRoot(_state.value.config)
         show(if (ok) "Применено. SystemUI перезапущен" else "Не удалось применить через su")

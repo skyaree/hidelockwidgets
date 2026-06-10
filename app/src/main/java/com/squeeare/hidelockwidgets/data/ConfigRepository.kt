@@ -2,10 +2,12 @@ package com.squeeare.hidelockwidgets.data
 
 import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
+import android.os.Process
 import androidx.documentfile.provider.DocumentFile
 import com.google.gson.GsonBuilder
 import java.io.File
@@ -40,25 +42,60 @@ class ConfigRepository(private val context: Context) {
         return runCatching {
             val pm = context.packageManager
             val manager = AppWidgetManager.getInstance(context)
-            manager.installedProviders
-                .map { info ->
-                    val provider = info.provider.flattenToString()
-                    val packageName = info.provider.packageName
-                    val label = runCatching {
-                        val appLabel = pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
-                        val widgetLabel = info.loadLabel(pm)?.toString().orEmpty()
-                        if (widgetLabel.isNotBlank() && widgetLabel != appLabel) "$appLabel · $widgetLabel" else appLabel
-                    }.getOrDefault(packageName)
-                    AvailableWidget(
-                        title = label,
-                        packageName = packageName,
+            val density = context.resources.displayMetrics.density
+            val map = linkedMapOf<String, AvailableWidget>()
+
+            fun appLabel(packageName: String): String {
+                return runCatching {
+                    pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+                }.getOrDefault(packageName)
+            }
+
+            val providers = runCatching {
+                manager.getInstalledProvidersForProfile(Process.myUserHandle())
+            }.getOrElse {
+                manager.installedProviders
+            }
+
+            providers.forEach { info ->
+                val provider = info.provider.flattenToString()
+                val packageName = info.provider.packageName
+                val label = runCatching {
+                    val app = appLabel(packageName)
+                    val widget = info.loadLabel(pm)?.toString().orEmpty()
+                    if (widget.isNotBlank() && widget != app) "$app · $widget" else app
+                }.getOrDefault(packageName)
+
+                map[provider] = AvailableWidget(
+                    title = label,
+                    packageName = packageName,
+                    provider = provider,
+                    minWidth = (info.minWidth / density).toInt().coerceAtLeast(120),
+                    minHeight = (info.minHeight / density).toInt().coerceAtLeast(72)
+                )
+            }
+
+            // Fallback: some firmwares hide providers from AppWidgetManager until package
+            // visibility is declared. This catches manifest receivers with APPWIDGET_UPDATE.
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
+            pm.queryBroadcastReceivers(intent, PackageManager.GET_META_DATA).forEach { resolveInfo ->
+                val ai = resolveInfo.activityInfo ?: return@forEach
+                val component = ComponentName(ai.packageName, ai.name)
+                val provider = component.flattenToString()
+                if (!map.containsKey(provider)) {
+                    val app = appLabel(ai.packageName)
+                    val shortName = ai.name.substringAfterLast('.')
+                    map[provider] = AvailableWidget(
+                        title = "$app · $shortName",
+                        packageName = ai.packageName,
                         provider = provider,
-                        minWidth = (info.minWidth / context.resources.displayMetrics.density).toInt().coerceAtLeast(120),
-                        minHeight = (info.minHeight / context.resources.displayMetrics.density).toInt().coerceAtLeast(72)
+                        minWidth = 320,
+                        minHeight = 160
                     )
                 }
-                .distinctBy { it.provider }
-                .sortedBy { it.title.lowercase() }
+            }
+
+            map.values.sortedWith(compareBy<AvailableWidget> { it.title.lowercase() }.thenBy { it.provider })
         }.getOrElse { emptyList() }
     }
 
