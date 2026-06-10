@@ -90,7 +90,7 @@ fun HomeScreen(state: MainUiState, vm: MainViewModel, padding: PaddingValues) {
             .fillMaxSize()
             .statusBarsPadding()
             .padding(horizontal = 20.dp)
-            .padding(top = 22.dp, bottom = 104.dp + padding.calculateBottomPadding()),
+            .padding(top = 22.dp, bottom = 18.dp + padding.calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {

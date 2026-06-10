@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,7 +28,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Widgets
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
@@ -54,43 +53,44 @@ import java.io.File
 
 @Composable
 fun PreviewScreen(state: MainUiState, vm: MainViewModel, padding: PaddingValues) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(horizontal = 20.dp)
-            .padding(top = 22.dp, bottom = 92.dp + padding.calculateBottomPadding()),
+            .padding(horizontal = 18.dp),
+        contentPadding = PaddingValues(
+            top = 18.dp,
+            bottom = padding.calculateBottomPadding() + 18.dp
+        ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = "Превью",
-            style = MaterialTheme.typography.displayLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = "Нажми на фон, слой или виджет — он выберется. Двигай пальцем прямо на экране.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyLarge
-        )
+        item {
+            Text(
+                text = "Превью",
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Большой холст локскрина. Нажми на фон, слой или виджет — он выберется, потом двигай пальцем.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center
-        ) {
+        item {
             LockPreviewCanvas(state = state, vm = vm)
         }
     }
 }
 
 @Composable
-private fun BoxScope.LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
+private fun LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
     ElevatedCard(
         modifier = Modifier
-            .fillMaxHeight()
-            .aspectRatio(9f / 19.5f),
-        shape = RoundedCornerShape(36.dp),
+            .fillMaxWidth()
+            .aspectRatio(9f / 16f),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Box(
@@ -102,7 +102,7 @@ private fun BoxScope.LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(26.dp))
+                    .clip(RoundedCornerShape(22.dp))
                     .background(Color.Black)
                     .clickable { vm.selectBackground() }
                     .pointerInput(state.activeLayer, state.selectedWidgetId, state.config.widgets) {
@@ -142,17 +142,13 @@ private fun BoxScope.LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
                 }
 
                 if (state.config.foregroundPath != null) {
-                    // Не перехватываем все тапы прозрачным foreground. Выбор переднего слоя делается
-                    // через карточку инфо/выбор картинки на главной, а видимый слой всё равно рисуется поверх.
                     PreviewImage(
                         path = state.config.foregroundPath,
                         x = state.config.foregroundX,
                         y = state.config.foregroundY,
                         scale = state.config.foregroundScale / 100f
                     )
-                    if (state.activeLayer == ActiveLayer.FOREGROUND) {
-                        SelectionFrame()
-                    }
+                    if (state.activeLayer == ActiveLayer.FOREGROUND) SelectionFrame()
                 }
 
                 ActiveInfoPanel(state = state, vm = vm)
@@ -204,7 +200,7 @@ private fun SelectionFrame() {
     Box(
         Modifier
             .fillMaxSize()
-            .border(2.dp, Color.White.copy(alpha = 0.92f), RoundedCornerShape(26.dp))
+            .border(2.dp, Color.White.copy(alpha = 0.92f), RoundedCornerShape(22.dp))
     )
 }
 
@@ -217,8 +213,8 @@ private fun StatusFake() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("01:29", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelLarge)
-        Text("VoLTE  88%", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelLarge)
+        Text("01:29", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("VoLTE  88%", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -228,13 +224,13 @@ private fun BoxScope.EmptyHint() {
         modifier = Modifier
             .align(Alignment.Center)
             .padding(20.dp),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
     ) {
         Text(
-            text = "Добавь виджет на главной",
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-            style = MaterialTheme.typography.titleMedium,
+            text = "Добавь виджет\nна главной",
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
     }
@@ -256,9 +252,9 @@ private fun PreviewWidget(widget: WidgetConfig, selected: Boolean, onSelect: () 
             .border(
                 width = if (selected) 2.dp else 0.dp,
                 color = if (selected) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(22.dp)
+                shape = RoundedCornerShape(20.dp)
             ),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
     ) {
         Box(Modifier.fillMaxSize().padding(14.dp)) {
@@ -293,10 +289,10 @@ private fun BoxScope.ActiveInfoPanel(state: MainUiState, vm: MainViewModel) {
         ActiveLayer.WIDGET -> {
             if (selected != null) {
                 title = "Виджет #${selected.id}"
-                subtitle = "X: ${selected.x}   Y: ${selected.y}   ${selected.width}×${selected.height}   S: ${selected.scale}%"
+                subtitle = "X: ${selected.x}  Y: ${selected.y}  ${selected.width}×${selected.height}  S: ${selected.scale}%"
             } else {
                 title = "Виджет не выбран"
-                subtitle = "Нажми на виджет или добавь его на главной"
+                subtitle = "Добавь на главной или нажми на виджет"
             }
             Icons.Rounded.Widgets
         }
@@ -307,53 +303,29 @@ private fun BoxScope.ActiveInfoPanel(state: MainUiState, vm: MainViewModel) {
             .align(Alignment.BottomCenter)
             .padding(12.dp)
             .fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.secondaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                IconButton(onClick = vm::deleteActive) {
-                    Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
-                }
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                AssistChip(onClick = { vm.nudgeActive(-10, 0) }, label = { Text("←") })
-                AssistChip(onClick = { vm.nudgeActive(10, 0) }, label = { Text("→") })
-                AssistChip(onClick = { vm.nudgeActive(0, -10) }, label = { Text("↑") })
-                AssistChip(onClick = { vm.nudgeActive(0, 10) }, label = { Text("↓") })
-                AssistChip(onClick = { vm.scaleActiveDelta(-10) }, label = { Text("S-") })
-                AssistChip(onClick = { vm.scaleActiveDelta(10) }, label = { Text("S+") })
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-
-            if (state.activeLayer == ActiveLayer.WIDGET && selected != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                    AssistChip(onClick = { vm.resizeActive(-20, 0) }, label = { Text("W-") })
-                    AssistChip(onClick = { vm.resizeActive(20, 0) }, label = { Text("W+") })
-                    AssistChip(onClick = { vm.resizeActive(0, -20) }, label = { Text("H-") })
-                    AssistChip(onClick = { vm.resizeActive(0, 20) }, label = { Text("H+") })
-                }
-                Text(
-                    text = selected.provider,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            IconButton(onClick = vm::deleteActive) {
+                Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
             }
         }
     }

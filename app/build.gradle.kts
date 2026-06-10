@@ -12,8 +12,8 @@ android {
         applicationId = "com.squeeare.hidelockwidgets"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "3.0-v4-ui"
+        versionCode = 4
+        versionName = "3.1-v5-big-preview"
     }
 
     buildTypes {

@@ -75,8 +75,7 @@ class ConfigRepository(private val context: Context) {
                 )
             }
 
-            // Fallback: some firmwares hide providers from AppWidgetManager until package
-            // visibility is declared. This catches manifest receivers with APPWIDGET_UPDATE.
+            // Fallback 1: catch manifest receivers with APPWIDGET_UPDATE.
             val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
             pm.queryBroadcastReceivers(intent, PackageManager.GET_META_DATA).forEach { resolveInfo ->
                 val ai = resolveInfo.activityInfo ?: return@forEach
@@ -92,6 +91,31 @@ class ConfigRepository(private val context: Context) {
                         minWidth = 320,
                         minHeight = 160
                     )
+                }
+            }
+
+            // Fallback 2: full package receiver scan. Some Android skins do not return
+            // all providers through queryBroadcastReceivers, but receiver metadata still contains
+            // android.appwidget.provider. QUERY_ALL_PACKAGES is declared in AndroidManifest.
+            val flags = PackageManager.GET_RECEIVERS or PackageManager.GET_META_DATA
+            pm.getInstalledPackages(flags).forEach { pkg ->
+                val receivers = pkg.receivers ?: return@forEach
+                receivers.forEach { ai ->
+                    val meta = ai.metaData ?: return@forEach
+                    if (!meta.containsKey(AppWidgetManager.META_DATA_APPWIDGET_PROVIDER)) return@forEach
+                    val component = ComponentName(ai.packageName, ai.name)
+                    val provider = component.flattenToString()
+                    if (!map.containsKey(provider)) {
+                        val app = appLabel(ai.packageName)
+                        val shortName = ai.name.substringAfterLast('.')
+                        map[provider] = AvailableWidget(
+                            title = "$app · $shortName",
+                            packageName = ai.packageName,
+                            provider = provider,
+                            minWidth = 320,
+                            minHeight = 160
+                        )
+                    }
                 }
             }
 
