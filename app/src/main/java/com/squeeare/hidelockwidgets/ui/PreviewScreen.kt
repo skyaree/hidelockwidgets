@@ -1,5 +1,15 @@
 package com.squeeare.hidelockwidgets.ui
 
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetHostView
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.content.Context
+import android.os.Bundle
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,6 +17,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -44,12 +55,17 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.squeeare.hidelockwidgets.data.WidgetConfig
 import java.io.File
+
+private const val DESIGN_WIDTH = 1080f
+private const val DESIGN_HEIGHT = 2400f
 
 @Composable
 fun PreviewScreen(state: MainUiState, vm: MainViewModel, padding: PaddingValues) {
@@ -59,20 +75,20 @@ fun PreviewScreen(state: MainUiState, vm: MainViewModel, padding: PaddingValues)
             .statusBarsPadding()
             .padding(horizontal = 18.dp),
         contentPadding = PaddingValues(
-            top = 18.dp,
-            bottom = padding.calculateBottomPadding() + 18.dp
+            top = 10.dp,
+            bottom = padding.calculateBottomPadding() + 10.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
             Text(
                 text = "Превью",
-                style = MaterialTheme.typography.displayMedium,
+                style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "Большой холст локскрина. Нажми на фон, слой или виджет — он выберется, потом двигай пальцем.",
+                text = "Холст 1080×2400: нажми на фон, слой или виджет — потом двигай пальцем.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge
             )
@@ -86,28 +102,35 @@ fun PreviewScreen(state: MainUiState, vm: MainViewModel, padding: PaddingValues)
 
 @Composable
 private fun LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
+    val density = LocalDensity.current
+
     ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(9f / 16f),
-        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(30.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .aspectRatio(DESIGN_WIDTH / DESIGN_HEIGHT)
+                .padding(10.dp)
         ) {
+            val canvasWidthDp = maxWidth
+            val designScale = canvasWidthDp.value / DESIGN_WIDTH
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color.Black)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFF020D13))
                     .clickable { vm.selectBackground() }
-                    .pointerInput(state.activeLayer, state.selectedWidgetId, state.config.widgets) {
+                    .pointerInput(state.activeLayer, state.selectedWidgetId, state.config.widgets, designScale) {
                         detectTransformGestures { _, pan, zoom, _ ->
-                            vm.moveActive(pan.x, pan.y)
+                            val dxDp = with(density) { pan.x.toDp().value }
+                            val dyDp = with(density) { pan.y.toDp().value }
+                            if (designScale > 0f) {
+                                vm.moveActive(dxDp / designScale, dyDp / designScale)
+                            }
                             vm.scaleActive(zoom)
                         }
                     }
@@ -117,12 +140,13 @@ private fun LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
                         path = state.config.backgroundPath,
                         x = state.config.backgroundX,
                         y = state.config.backgroundY,
-                        scale = state.config.backgroundScale / 100f,
+                        scalePercent = state.config.backgroundScale,
+                        designScale = designScale,
                         selected = state.activeLayer == ActiveLayer.BACKGROUND,
                         onSelect = vm::selectBackground
                     )
                 } else {
-                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest))
+                    Box(Modifier.fillMaxSize().background(Color(0xFF021018)))
                 }
 
                 StatusFake()
@@ -135,6 +159,7 @@ private fun LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
                     if (widget.visible) {
                         PreviewWidget(
                             widget = widget,
+                            designScale = designScale,
                             selected = state.selectedWidgetId == widget.id && state.activeLayer == ActiveLayer.WIDGET,
                             onSelect = { vm.selectWidget(widget.id) }
                         )
@@ -146,7 +171,8 @@ private fun LockPreviewCanvas(state: MainUiState, vm: MainViewModel) {
                         path = state.config.foregroundPath,
                         x = state.config.foregroundX,
                         y = state.config.foregroundY,
-                        scale = state.config.foregroundScale / 100f
+                        scalePercent = state.config.foregroundScale,
+                        designScale = designScale
                     )
                     if (state.activeLayer == ActiveLayer.FOREGROUND) SelectionFrame()
                 }
@@ -162,7 +188,8 @@ private fun SelectableImageLayer(
     path: String?,
     x: Int,
     y: Int,
-    scale: Float,
+    scalePercent: Int,
+    designScale: Float,
     selected: Boolean,
     onSelect: () -> Unit
 ) {
@@ -171,14 +198,17 @@ private fun SelectableImageLayer(
             .fillMaxSize()
             .clickable(onClick = onSelect)
     ) {
-        PreviewImage(path = path, x = x, y = y, scale = scale)
+        PreviewImage(path = path, x = x, y = y, scalePercent = scalePercent, designScale = designScale)
         if (selected) SelectionFrame()
     }
 }
 
 @Composable
-private fun PreviewImage(path: String?, x: Int, y: Int, scale: Float) {
+private fun PreviewImage(path: String?, x: Int, y: Int, scalePercent: Int, designScale: Float) {
+    val density = LocalDensity.current
     if (path != null && File(path).exists()) {
+        val tx = with(density) { (x * designScale).dp.toPx() }
+        val ty = with(density) { (y * designScale).dp.toPx() }
         AsyncImage(
             model = File(path),
             contentDescription = null,
@@ -186,10 +216,10 @@ private fun PreviewImage(path: String?, x: Int, y: Int, scale: Float) {
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationX = x.toFloat()
-                    translationY = y.toFloat()
-                    scaleX = scale
-                    scaleY = scale
+                    translationX = tx
+                    translationY = ty
+                    scaleX = scalePercent / 100f
+                    scaleY = scalePercent / 100f
                 }
         )
     }
@@ -200,7 +230,7 @@ private fun SelectionFrame() {
     Box(
         Modifier
             .fillMaxSize()
-            .border(2.dp, Color.White.copy(alpha = 0.92f), RoundedCornerShape(22.dp))
+            .border(2.dp, Color.White.copy(alpha = 0.92f), RoundedCornerShape(24.dp))
     )
 }
 
@@ -209,7 +239,7 @@ private fun StatusFake() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = 22.dp, vertical = 18.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -237,34 +267,52 @@ private fun BoxScope.EmptyHint() {
 }
 
 @Composable
-private fun PreviewWidget(widget: WidgetConfig, selected: Boolean, onSelect: () -> Unit) {
-    ElevatedCard(
-        onClick = onSelect,
+private fun PreviewWidget(widget: WidgetConfig, designScale: Float, selected: Boolean, onSelect: () -> Unit) {
+    Box(
         modifier = Modifier
-            .offset(widget.x.dp, widget.y.dp)
-            .width(widget.width.dp)
-            .height(widget.height.dp)
+            .offset((widget.x * designScale).dp, (widget.y * designScale).dp)
+            .width((widget.width * designScale).dp)
+            .height((widget.height * designScale).dp)
             .graphicsLayer {
                 scaleX = widget.scale / 100f
                 scaleY = widget.scale / 100f
                 transformOrigin = TransformOrigin(0f, 0f)
             }
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .border(
-                width = if (selected) 2.dp else 0.dp,
-                color = if (selected) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(20.dp)
-            ),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) Color.White else Color.White.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(18.dp)
+            )
+            .clickable(onClick = onSelect)
     ) {
-        Box(Modifier.fillMaxSize().padding(14.dp)) {
-            Column(Modifier.align(Alignment.CenterStart)) {
-                Text(widget.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(4.dp))
-                Text("Live widget", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                AppWidgetPreviewHost.create(
+                    context = context,
+                    localId = widget.id,
+                    providerString = widget.provider,
+                    widthDp = (widget.width / 3).coerceAtLeast(60),
+                    heightDp = (widget.height / 3).coerceAtLeast(40),
+                    fallbackTitle = widget.title
+                )
             }
-            if (selected) {
-                Text("#${widget.id}", modifier = Modifier.align(Alignment.TopEnd), color = MaterialTheme.colorScheme.primary)
+        )
+        if (selected) {
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+            ) {
+                Text(
+                    text = "#${widget.id}",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -304,7 +352,7 @@ private fun BoxScope.ActiveInfoPanel(state: MainUiState, vm: MainViewModel) {
             .padding(12.dp)
             .fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -327,6 +375,89 @@ private fun BoxScope.ActiveInfoPanel(state: MainUiState, vm: MainViewModel) {
             IconButton(onClick = vm::deleteActive) {
                 Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+
+private object AppWidgetPreviewHost {
+    private const val HOST_ID = 8193
+    private var host: AppWidgetHost? = null
+    private val widgetIds = linkedMapOf<Int, Int>()
+    private val providers = linkedMapOf<Int, String>()
+
+    fun create(
+        context: Context,
+        localId: Int,
+        providerString: String,
+        widthDp: Int,
+        heightDp: Int,
+        fallbackTitle: String
+    ): View {
+        return try {
+            val appContext = context.applicationContext
+            val component = ComponentName.unflattenFromString(providerString) ?: return fallback(context, fallbackTitle, "Bad provider")
+            val manager = AppWidgetManager.getInstance(appContext)
+            val h = host ?: AppWidgetHost(appContext, HOST_ID).also {
+                host = it
+                it.startListening()
+            }
+
+            val oldProvider = providers[localId]
+            var id = widgetIds[localId] ?: -1
+            if (id > 0 && oldProvider != null && oldProvider != providerString) {
+                runCatching { h.deleteAppWidgetId(id) }
+                id = -1
+            }
+
+            if (id <= 0) {
+                id = h.allocateAppWidgetId()
+                val bound = runCatching { manager.bindAppWidgetIdIfAllowed(id, component) }.getOrDefault(false)
+                if (!bound) {
+                    runCatching { h.deleteAppWidgetId(id) }
+                    return fallback(context, fallbackTitle, "Preview bind denied")
+                }
+                widgetIds[localId] = id
+                providers[localId] = providerString
+            }
+
+            val options = Bundle().apply {
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, widthDp)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, widthDp)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, heightDp)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, heightDp)
+            }
+            runCatching { manager.updateAppWidgetOptions(id, options) }
+
+            val info = manager.getAppWidgetInfo(id) ?: return fallback(context, fallbackTitle, "No AppWidgetInfo")
+            val view: AppWidgetHostView = h.createView(appContext, id, info)
+            view.setAppWidget(id, info)
+            view.setPadding(0, 0, 0, 0)
+            view.clipChildren = false
+            view.clipToPadding = false
+            runCatching { view.updateAppWidgetSize(options, widthDp, heightDp, widthDp, heightDp) }
+            h.startListening()
+            view
+        } catch (t: Throwable) {
+            fallback(context, fallbackTitle, t.javaClass.simpleName ?: "Preview error")
+        }
+    }
+
+    private fun fallback(context: Context, title: String, reason: String): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(22, 14, 22, 14)
+            setBackgroundColor(0xE61B1B1F.toInt())
+            addView(TextView(context).apply {
+                text = title
+                textSize = 16f
+                setTextColor(0xFFFFFFFF.toInt())
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            addView(TextView(context).apply {
+                text = reason
+                textSize = 12f
+                setTextColor(0xCCFFFFFF.toInt())
+            })
         }
     }
 }

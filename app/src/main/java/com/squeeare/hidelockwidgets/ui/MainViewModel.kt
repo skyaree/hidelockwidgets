@@ -67,15 +67,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addWidget(widget: AvailableWidget) {
         val nextId = ((_state.value.config.widgets.maxOfOrNull { it.id } ?: 0) + 1)
-        val startY = 120 + (_state.value.config.widgets.size * 34)
+        val startY = 520 + (_state.value.config.widgets.size * 130)
         val newWidget = WidgetConfig(
             id = nextId,
             title = widget.title,
             provider = widget.provider,
-            x = 0,
+            x = 120,
             y = startY,
-            width = widget.minWidth.coerceIn(180, 360),
-            height = widget.minHeight.coerceIn(80, 220),
+            width = (widget.minWidth * 3).coerceIn(360, 980),
+            height = (widget.minHeight * 3).coerceIn(180, 620),
             scale = 100,
             live = true,
             visible = true
@@ -146,7 +146,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun nudgeWidget(id: Int, dx: Int, dy: Int) = updateWidget(id) { copy(x = x + dx, y = y + dy) }
-    fun resizeWidget(id: Int, dw: Int, dh: Int) = updateWidget(id) { copy(width = (width + dw).coerceIn(80, 600), height = (height + dh).coerceIn(50, 500)) }
+    fun resizeWidget(id: Int, dw: Int, dh: Int) = updateWidget(id) { copy(width = (width + dw).coerceIn(180, 1080), height = (height + dh).coerceIn(120, 1200)) }
     fun scaleWidget(id: Int, delta: Int) = updateWidget(id) { copy(scale = (scale + delta).coerceIn(40, 250)) }
 
 
