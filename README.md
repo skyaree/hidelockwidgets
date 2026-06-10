@@ -23,3 +23,9 @@ su -c 'appwidget grantbind --package com.android.systemui --user 0'
 ```
 
 If LSPosed does not show the module, reinstall the APK and check that `assets/xposed_init` exists.
+
+
+## V7
+- Hotfix: Apply/Restart/Soft Restart/Reset now use a more reliable root path.
+- Grants SystemUI and app package for AppWidget bind.
+- Copies depth images into /data/local/tmp/hidelockwidgets before applying.

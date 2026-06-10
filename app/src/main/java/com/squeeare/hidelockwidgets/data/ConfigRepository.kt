@@ -140,31 +140,97 @@ class ConfigRepository(private val context: Context) {
         } catch (_: Throwable) { null }
     }
 
-    fun applyWithRoot(config: DepthConfig): Boolean {
-        save(config)
-        val text = buildConfig(config)
-        val tmp = File(context.cacheDir, "config.txt")
-        tmp.writeText(text)
-        val quotedTmp = tmp.absolutePath.replace("'", "'\\''")
+    fun ensureRootSetup(): Boolean {
         return runSu(
             "mkdir -p /data/local/tmp/hidelockwidgets && " +
                     "chmod 777 /data/local/tmp/hidelockwidgets && " +
-                    "cp '$quotedTmp' /data/local/tmp/hidelockwidgets/config.txt && " +
+                    "appwidget grantbind --package com.android.systemui --user 0 >/dev/null 2>&1; " +
+                    "appwidget grantbind --package com.squeeare.hidelockwidgets --user 0 >/dev/null 2>&1; " +
+                    "true"
+        )
+    }
+
+    fun applyWithRoot(config: DepthConfig): Boolean {
+        save(config)
+        ensureRootSetup()
+
+        val prepared = prepareRootLayerImages(config)
+        val text = buildConfig(prepared)
+
+        mediaDir.mkdirs()
+        val externalConfig = File(mediaDir, "config.txt")
+        externalConfig.writeText(text)
+
+        val src = shellQuote(externalConfig.absolutePath)
+
+        return runSu(
+            "mkdir -p /data/local/tmp/hidelockwidgets && " +
+                    "chmod 777 /data/local/tmp/hidelockwidgets && " +
+                    "cp $src /data/local/tmp/hidelockwidgets/config.txt && " +
                     "chmod 666 /data/local/tmp/hidelockwidgets/config.txt && " +
                     "appwidget grantbind --package com.android.systemui --user 0 >/dev/null 2>&1; " +
+                    "appwidget grantbind --package com.squeeare.hidelockwidgets --user 0 >/dev/null 2>&1; " +
+                    "killall com.android.systemui >/dev/null 2>&1; " +
+                    "true"
+        )
+    }
+
+    fun restartSystemUi(): Boolean {
+        ensureRootSetup()
+        return runSu("killall com.android.systemui >/dev/null 2>&1; true")
+    }
+
+    fun softRestart(): Boolean {
+        ensureRootSetup()
+        return runSu(
+            "rm -f /data/local/tmp/hidelockwidgets/systemui_widget_*_id.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_*_provider.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_id.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_provider.txt; " +
                     "killall com.android.systemui >/dev/null 2>&1; true"
         )
     }
 
-    fun restartSystemUi(): Boolean = runSu("killall com.android.systemui >/dev/null 2>&1; true")
+    fun resetRootConfig(): Boolean {
+        return runSu(
+            "rm -f /data/local/tmp/hidelockwidgets/config.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_*_id.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_*_provider.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_id.txt " +
+                    "/data/local/tmp/hidelockwidgets/systemui_widget_provider.txt; " +
+                    "killall com.android.systemui >/dev/null 2>&1; true"
+        )
+    }
 
-    fun softRestart(): Boolean = runSu(
-        "rm -f /data/local/tmp/hidelockwidgets/systemui_widget_*_id.txt " +
-                "/data/local/tmp/hidelockwidgets/systemui_widget_*_provider.txt " +
-                "/data/local/tmp/hidelockwidgets/systemui_widget_id.txt " +
-                "/data/local/tmp/hidelockwidgets/systemui_widget_provider.txt; " +
-                "killall com.android.systemui >/dev/null 2>&1; true"
-    )
+    private fun prepareRootLayerImages(config: DepthConfig): DepthConfig {
+        var updated = config
+
+        fun copyImageToRoot(sourcePath: String?, targetName: String): String? {
+            if (sourcePath.isNullOrBlank()) return null
+            val source = File(sourcePath)
+            if (!source.exists()) return sourcePath
+
+            val ext = source.extension.ifBlank { "png" }
+            val targetPath = "/data/local/tmp/hidelockwidgets/$targetName.$ext"
+            val ok = runSu(
+                "mkdir -p /data/local/tmp/hidelockwidgets && " +
+                        "chmod 777 /data/local/tmp/hidelockwidgets && " +
+                        "cp ${shellQuote(source.absolutePath)} ${shellQuote(targetPath)} && " +
+                        "chmod 666 ${shellQuote(targetPath)}"
+            )
+            return if (ok) targetPath else sourcePath
+        }
+
+        val bg = copyImageToRoot(config.backgroundPath, "depth_background")
+        val fg = copyImageToRoot(config.foregroundPath, "depth_foreground")
+
+        updated = updated.copy(
+            backgroundPath = bg,
+            foregroundPath = fg
+        )
+
+        return updated
+    }
 
     private fun buildConfig(config: DepthConfig): String {
         val widgets = config.widgets.filter { it.visible && it.provider.isNotBlank() }
@@ -212,6 +278,10 @@ class ConfigRepository(private val context: Context) {
             appendLine("live_mode=${first?.live ?: true}")
             appendLine("snapshot=${first?.snapshot ?: "/data/local/tmp/hidelockwidgets/widget_snapshot.png"}")
         }
+    }
+
+    private fun shellQuote(value: String): String {
+        return "'" + value.replace("'", "'\\''") + "'"
     }
 
     private fun runSu(command: String): Boolean {

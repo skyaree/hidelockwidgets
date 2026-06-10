@@ -27,6 +27,13 @@ data class MainUiState(
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = ConfigRepository(app)
+
+    init {
+        // Нужен grant для live preview внутри приложения и для SystemUI на локскрине.
+        // Если root уже выдан приложению, это выполняется тихо; если нет — просто не ломает UI.
+        repo.ensureRootSetup()
+    }
+
     private val _state = MutableStateFlow(
         MainUiState(
             config = repo.load(),
@@ -112,6 +119,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun resetAll() {
         val empty = DepthConfig()
         repo.save(empty)
+        repo.resetRootConfig()
         _state.update { it.copy(config = empty, selectedWidgetId = null, activeLayer = ActiveLayer.WIDGET, message = "Настройки сброшены") }
     }
 
