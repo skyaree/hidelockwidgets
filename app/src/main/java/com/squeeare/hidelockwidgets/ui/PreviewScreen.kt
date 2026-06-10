@@ -206,7 +206,7 @@ private fun PreviewWidget(widget: WidgetConfig, selected: Boolean, onSelect: () 
 }
 
 @Composable
-private fun ActiveOverlayInfo(state: MainUiState) {
+private fun BoxScope.ActiveOverlayInfo(state: MainUiState) {
     val selected = state.config.widgets.firstOrNull { it.id == state.selectedWidgetId }
     val text = when (state.activeLayer) {
         ActiveLayer.BACKGROUND -> "Задний слой\nX: ${state.config.backgroundX}\nY: ${state.config.backgroundY}"
