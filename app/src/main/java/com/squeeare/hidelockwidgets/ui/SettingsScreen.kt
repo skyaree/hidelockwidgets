@@ -1,199 +1,85 @@
 package com.squeeare.hidelockwidgets.ui
 
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SettingsScreen(
-    state: MainUiState,
-    onDepthEnabledChanged: (Boolean) -> Unit,
-    onPickBackground: (Uri) -> Unit,
-    onPickForeground: (Uri) -> Unit,
-    onWidgetCountChanged: (Int) -> Unit,
-    onSave: () -> Unit,
-    onOpenPreview: () -> Unit
-) {
-    val backgroundPicker = rememberLauncherForActivityResult(
-        contract = OpenDocument()
-    ) { uri ->
-        if (uri != null) onPickBackground(uri)
-    }
+fun SettingsScreen(state: MainUiState, vm: MainViewModel, padding: PaddingValues) {
+    val bgPicker = rememberLauncherForActivityResult(OpenDocument()) { it?.let(vm::importBackground) }
+    val fgPicker = rememberLauncherForActivityResult(OpenDocument()) { it?.let(vm::importForeground) }
 
-    val foregroundPicker = rememberLauncherForActivityResult(
-        contract = OpenDocument()
-    ) { uri ->
-        if (uri != null) onPickForeground(uri)
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
-            .navigationBarsPadding()
-            .padding(bottom = 24.dp),
+    LazyColumn(
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 24.dp + padding.calculateTopPadding(), bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineLarge
-        )
-
-        Text(
-            text = "Минималистичная настройка depth wallpaper и preview для lockscreen.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "Depth wallpaper",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                ListItem(
-                    headlineContent = { Text("Включить depth wallpaper") },
-                    supportingContent = {
-                        Text("Слои будут использоваться как задний и передний план локскрина")
-                    },
-                    trailingContent = {
-                        Switch(
-                            checked = state.config.depthEnabled,
-                            onCheckedChange = onDepthEnabledChanged
-                        )
-                    }
-                )
-            }
+        item {
+            Text("HideLockWidgets", style = MaterialTheme.typography.headlineLarge)
+            Text("Виджеты, depth wallpaper и живой preview для локскрина.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "Изображения",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                FilledTonalButton(
-                    onClick = { backgroundPicker.launch(arrayOf("image/*")) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Выбрать задний план")
+        item {
+            ElevatedCard { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Быстрые переключатели", style = MaterialTheme.typography.titleLarge)
+                SwitchRow("Виджеты на локскрине", state.config.widgetsEnabled, vm::toggleWidgets)
+                SwitchRow("Depth wallpaper", state.config.depthEnabled, vm::toggleDepth)
+                SwitchRow("Скрывать стоковые часы", state.config.hideClock, vm::toggleHideClock)
+            } }
+        }
+        item {
+            ElevatedCard { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Виджеты", style = MaterialTheme.typography.titleLarge)
+                    AssistChip(onClick = vm::addCustomWidget, label = { Text("Custom") }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = state.config.backgroundPath ?: "Задний план не выбран",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                FilledTonalButton(
-                    onClick = { foregroundPicker.launch(arrayOf("image/*")) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Выбрать передний план (PNG)")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FilledTonalButton(onClick = vm::addYandexRecent, modifier = Modifier.weight(1f)) { Text("Yandex Recent") }
+                    FilledTonalButton(onClick = vm::addYandexRectangle, modifier = Modifier.weight(1f)) { Text("Rectangle") }
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = state.config.foregroundPath ?: "Передний план не выбран",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+                Text("Выбирай виджет в Preview и двигай его прямо пальцем.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } }
         }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "Preview виджетов",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Количество виджетов: ${state.config.previewWidgetCount}",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-
-                Slider(
-                    value = state.config.previewWidgetCount.toFloat(),
-                    onValueChange = { onWidgetCountChanged(it.toInt().coerceIn(1, 4)) },
-                    valueRange = 1f..4f,
-                    steps = 2
-                )
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "Путь хранения",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = state.storagePath,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = onOpenPreview,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Открыть Preview")
+        items(state.config.widgets, key = { it.id }) { w ->
+            ElevatedCard(onClick = { vm.selectWidget(w.id); vm.setPage(AppPage.PREVIEW) }) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(w.title, style = MaterialTheme.typography.titleMedium)
+                        Text("#${w.id}", color = MaterialTheme.colorScheme.primary)
                     }
-
-                    TextButton(
-                        onClick = onSave,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Сохранить")
-                    }
+                    Text(w.provider.ifBlank { "provider не указан" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("x=${w.xDp}, y=${w.yDp}, ${w.widthDp}×${w.heightDp}dp, scale=${w.scalePercent}%")
                 }
             }
         }
+        item {
+            ElevatedCard { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Depth images", style = MaterialTheme.typography.titleLarge)
+                FilledTonalButton(onClick = { bgPicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Выбрать задний план") }
+                Text(state.config.backgroundPath ?: "Не выбран", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FilledTonalButton(onClick = { fgPicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Выбрать передний план") }
+                Text(state.config.foregroundPath ?: "Не выбран", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = vm::apply, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Done, null); Spacer(Modifier.width(8.dp)); Text("Apply") }
+                OutlinedButton(onClick = vm::save, modifier = Modifier.weight(1f)) { Text("Save") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
