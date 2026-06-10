@@ -149,26 +149,36 @@ public class MainHook implements IXposedHookLoadPackage {
 
     private static void addEverything(View root, FullConfig config) {
         try {
-            ViewGroup canvas = getFullscreenCanvas(root);
-            if (canvas == null) return;
-            disableClipping(canvas);
+            ViewGroup rootHost = getRootHost(root);
+            ViewGroup keyguardRoot = getKeyguardRoot(root);
+            if (rootHost == null && keyguardRoot == null) return;
+            if (keyguardRoot == null) keyguardRoot = rootHost;
+            if (rootHost == null) rootHost = keyguardRoot;
 
+            disableClipping(rootHost);
+            disableClipping(keyguardRoot);
+
+            // Iconify-like layering:
+            // background goes to the real root at index 0, widgets/foreground go into keyguard_root_view.
             if (config.depthEnabled && config.backgroundPath != null && config.backgroundPath.length() > 0) {
-                addImageLayer(root.getContext(), canvas, TAG_DEPTH_BACKGROUND, config.backgroundPath, config.backgroundX, config.backgroundY, config.backgroundScale, true);
+                addImageLayer(root.getContext(), rootHost, TAG_DEPTH_BACKGROUND, config.backgroundPath, config.backgroundX, config.backgroundY, config.backgroundScale, true);
             } else {
-                removeByTag(canvas, TAG_DEPTH_BACKGROUND);
+                removeByTag(rootHost, TAG_DEPTH_BACKGROUND);
+                if (keyguardRoot != rootHost) removeByTag(keyguardRoot, TAG_DEPTH_BACKGROUND);
             }
 
             if (config.widgetsEnabled) {
-                for (WidgetConfig w : config.widgets) addWidgetLayer(root.getContext(), canvas, w);
+                for (WidgetConfig w : config.widgets) addWidgetLayer(root.getContext(), keyguardRoot, w);
             }
-            removeStaleWidgets(canvas, config.widgets);
+            removeStaleWidgets(keyguardRoot, config.widgets);
 
             if (config.depthEnabled && config.foregroundPath != null && config.foregroundPath.length() > 0) {
-                addImageLayer(root.getContext(), canvas, TAG_DEPTH_FOREGROUND, config.foregroundPath, config.foregroundX, config.foregroundY, config.foregroundScale, false);
+                addImageLayer(root.getContext(), keyguardRoot, TAG_DEPTH_FOREGROUND, config.foregroundPath, config.foregroundX, config.foregroundY, config.foregroundScale, false);
             } else {
-                removeByTag(canvas, TAG_DEPTH_FOREGROUND);
+                removeByTag(keyguardRoot, TAG_DEPTH_FOREGROUND);
             }
+
+            normalizeLayerOrder(rootHost, keyguardRoot);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": addEverything error " + t);
         }
@@ -179,7 +189,20 @@ public class MainHook implements IXposedHookLoadPackage {
             View old = parent.findViewWithTag(tag);
             if (old != null) {
                 applyLayerParams(context, parent, old, DESIGN_WIDTH, DESIGN_HEIGHT, x, y, scale);
-                if (!toBack) old.bringToFront();
+                old.setClickable(false);
+                old.setFocusable(false);
+                old.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                if (toBack) {
+                    moveChildToIndex(parent, old, 0);
+                    old.setZ(-1000f);
+                    old.setElevation(-1000f);
+                    old.setTranslationZ(-1000f);
+                } else {
+                    moveChildToTop(parent, old);
+                    old.setZ(200f);
+                    old.setElevation(200f);
+                    old.setTranslationZ(200f);
+                }
                 return;
             }
             File file = new File(path);
@@ -191,10 +214,23 @@ public class MainHook implements IXposedHookLoadPackage {
             image.setImageBitmap(bitmap);
             image.setScaleType(ImageView.ScaleType.FIT_XY);
             image.setClipToOutline(false);
+            image.setClickable(false);
+            image.setFocusable(false);
+            image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             ViewGroup.LayoutParams lp = makeParentLayoutParams(parent, screenWidthPx(context), screenHeightPx(context));
             if (toBack) parent.addView(image, 0, lp); else parent.addView(image, lp);
             applyLayerParams(context, parent, image, DESIGN_WIDTH, DESIGN_HEIGHT, x, y, scale);
-            if (!toBack) image.bringToFront();
+            if (toBack) {
+                moveChildToIndex(parent, image, 0);
+                image.setZ(-1000f);
+                image.setElevation(-1000f);
+                image.setTranslationZ(-1000f);
+            } else {
+                moveChildToTop(parent, image);
+                image.setZ(200f);
+                image.setElevation(200f);
+                image.setTranslationZ(200f);
+            }
             XposedBridge.log(TAG + ": depth image added tag=" + tag + " path=" + path);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": addImageLayer error " + t);
@@ -211,6 +247,9 @@ public class MainHook implements IXposedHookLoadPackage {
             int heightDp = pxToDp(context, heightPx);
             if (already != null) {
                 applyLayerParams(context, parent, already, config.widthDp, config.heightDp, config.xDp, config.yDp, config.scalePercent);
+                already.setZ(100f + config.index);
+                already.setElevation(100f + config.index);
+                already.setTranslationZ(100f + config.index);
                 return;
             }
             FrameLayout overlay = new FrameLayout(context);
@@ -231,6 +270,9 @@ public class MainHook implements IXposedHookLoadPackage {
             overlay.addView(widgetView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             parent.addView(overlay, makeParentLayoutParams(parent, widthPx, heightPx));
             applyLayerParams(context, parent, overlay, config.widthDp, config.heightDp, config.xDp, config.yDp, config.scalePercent);
+            overlay.setZ(100f + config.index);
+            overlay.setElevation(100f + config.index);
+            overlay.setTranslationZ(100f + config.index);
             XposedBridge.log(TAG + ": widget overlay added index=" + config.index + " provider=" + config.provider);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": addWidgetLayer error " + t);
@@ -510,33 +552,97 @@ public class MainHook implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {}
     }
 
-    private static ViewGroup getFullscreenCanvas(View root) {
+    private static ViewGroup getRootHost(View root) {
         try {
-            View hostView = root.getRootView();
-            if (!(hostView instanceof ViewGroup)) {
-                if (root instanceof ViewGroup) return (ViewGroup) root;
-                return null;
-            }
-            ViewGroup host = (ViewGroup) hostView;
-            disableClippingDeep(host);
-            View found = host.findViewWithTag(TAG_CANVAS);
-            if (found instanceof ViewGroup) return (ViewGroup) found;
+            View host = root.getRootView();
+            if (host instanceof ViewGroup) return (ViewGroup) host;
+        } catch (Throwable ignored) {}
+        if (root instanceof ViewGroup) return (ViewGroup) root;
+        return null;
+    }
 
-            FrameLayout canvas = new FrameLayout(root.getContext());
-            canvas.setTag(TAG_CANVAS);
-            canvas.setClipChildren(false);
-            canvas.setClipToPadding(false);
-            canvas.setClickable(false);
-            canvas.setFocusable(false);
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            lp.gravity = Gravity.TOP | Gravity.START;
-            host.addView(canvas, lp);
-            return canvas;
+    private static ViewGroup getKeyguardRoot(View root) {
+        try {
+            View host = root.getRootView();
+            if (host instanceof ViewGroup) {
+                int id = root.getResources().getIdentifier("keyguard_root_view", "id", "com.android.systemui");
+                if (id != 0) {
+                    View keyguard = ((ViewGroup) host).findViewById(id);
+                    if (keyguard instanceof ViewGroup) return (ViewGroup) keyguard;
+                }
+                ViewGroup byName = findViewGroupByResourceName((ViewGroup) host, "keyguard_root_view");
+                if (byName != null) return byName;
+            }
+        } catch (Throwable ignored) {}
+        return getStatusViewContainer(root);
+    }
+
+    private static ViewGroup findViewGroupByResourceName(View view, String wantedName) {
+        try {
+            if (view.getId() != View.NO_ID) {
+                String name = view.getResources().getResourceEntryName(view.getId());
+                if (wantedName.equals(name) && view instanceof ViewGroup) return (ViewGroup) view;
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    ViewGroup found = findViewGroupByResourceName(group.getChildAt(i), wantedName);
+                    if (found != null) return found;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static void normalizeLayerOrder(ViewGroup rootHost, ViewGroup keyguardRoot) {
+        try {
+            View bg = rootHost == null ? null : rootHost.findViewWithTag(TAG_DEPTH_BACKGROUND);
+            if (bg != null) {
+                moveChildToIndex(rootHost, bg, 0);
+                bg.setZ(-1000f);
+                bg.setElevation(-1000f);
+                bg.setTranslationZ(-1000f);
+            }
+
+            if (keyguardRoot != null) {
+                for (int i = 1; i <= 50; i++) {
+                    View widget = keyguardRoot.findViewWithTag(TAG_WIDGET_PREFIX + i);
+                    if (widget != null) {
+                        widget.setZ(100f + i);
+                        widget.setElevation(100f + i);
+                        widget.setTranslationZ(100f + i);
+                    }
+                }
+                View fg = keyguardRoot.findViewWithTag(TAG_DEPTH_FOREGROUND);
+                if (fg != null) {
+                    moveChildToTop(keyguardRoot, fg);
+                    fg.setZ(200f);
+                    fg.setElevation(200f);
+                    fg.setTranslationZ(200f);
+                }
+            }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": getFullscreenCanvas error " + t);
-            if (root instanceof ViewGroup) return (ViewGroup) root;
-            return null;
+            XposedBridge.log(TAG + ": normalizeLayerOrder error " + t);
         }
+    }
+
+    private static void moveChildToIndex(ViewGroup parent, View child, int index) {
+        if (parent == null || child == null) return;
+        try {
+            ViewParent oldParent = child.getParent();
+            if (oldParent instanceof ViewGroup) ((ViewGroup) oldParent).removeView(child);
+            int safeIndex = Math.max(0, Math.min(index, parent.getChildCount()));
+            parent.addView(child, safeIndex);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void moveChildToTop(ViewGroup parent, View child) {
+        if (parent == null || child == null) return;
+        try {
+            ViewParent oldParent = child.getParent();
+            if (oldParent instanceof ViewGroup) ((ViewGroup) oldParent).removeView(child);
+            parent.addView(child);
+        } catch (Throwable ignored) {}
     }
 
     private static void disableClippingDeep(View view) {

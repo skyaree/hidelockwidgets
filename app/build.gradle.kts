@@ -12,8 +12,8 @@ android {
         applicationId = "com.squeeare.hidelockwidgets"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "3.4-v8-xposed-signature-fix"
+        versionCode = 11
+        versionName = "3.7-v11-iconify-layering"
     }
 
     buildTypes {
