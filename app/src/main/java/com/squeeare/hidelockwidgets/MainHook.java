@@ -176,14 +176,9 @@ public class MainHook implements IXposedHookLoadPackage {
 
     private static void addImageLayer(Context context, ViewGroup parent, String tag, String path, int x, int y, int scale, boolean toBack) {
         try {
-            int layerWidthDp = screenWidthDp(context);
-            int layerHeightDp = screenHeightDp(context);
-            int xDp = designToDpX(context, x);
-            int yDp = designToDpY(context, y);
-
             View old = parent.findViewWithTag(tag);
             if (old != null) {
-                applyLayerParams(context, old, layerWidthDp, layerHeightDp, xDp, yDp, scale);
+                applyLayerParams(context, parent, old, DESIGN_WIDTH, DESIGN_HEIGHT, x, y, scale);
                 if (!toBack) old.bringToFront();
                 return;
             }
@@ -194,11 +189,11 @@ public class MainHook implements IXposedHookLoadPackage {
             ImageView image = new ImageView(context);
             image.setTag(tag);
             image.setImageBitmap(bitmap);
-            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            image.setScaleType(ImageView.ScaleType.FIT_XY);
             image.setClipToOutline(false);
-            ViewGroup.LayoutParams lp = makeParentLayoutParams(parent, dp(context, layerWidthDp), dp(context, layerHeightDp));
+            ViewGroup.LayoutParams lp = makeParentLayoutParams(parent, screenWidthPx(context), screenHeightPx(context));
             if (toBack) parent.addView(image, 0, lp); else parent.addView(image, lp);
-            applyLayerParams(context, image, layerWidthDp, layerHeightDp, xDp, yDp, scale);
+            applyLayerParams(context, parent, image, DESIGN_WIDTH, DESIGN_HEIGHT, x, y, scale);
             if (!toBack) image.bringToFront();
             XposedBridge.log(TAG + ": depth image added tag=" + tag + " path=" + path);
         } catch (Throwable t) {
@@ -208,23 +203,20 @@ public class MainHook implements IXposedHookLoadPackage {
 
     private static void addWidgetLayer(Context context, ViewGroup parent, WidgetConfig config) {
         try {
-            int xDp = designToDpX(context, config.xDp);
-            int yDp = designToDpY(context, config.yDp);
-            int widthDp = Math.max(1, designToDpX(context, config.widthDp));
-            int heightDp = Math.max(1, designToDpY(context, config.heightDp));
-
             String tag = TAG_WIDGET_PREFIX + config.index;
             View already = parent.findViewWithTag(tag);
+            int widthPx = designToPxX(context, config.widthDp);
+            int heightPx = designToPxY(context, config.heightDp);
+            int widthDp = pxToDp(context, widthPx);
+            int heightDp = pxToDp(context, heightPx);
             if (already != null) {
-                applyLayerParams(context, already, widthDp, heightDp, xDp, yDp, config.scalePercent);
+                applyLayerParams(context, parent, already, config.widthDp, config.heightDp, config.xDp, config.yDp, config.scalePercent);
                 return;
             }
             FrameLayout overlay = new FrameLayout(context);
             overlay.setTag(tag);
             overlay.setClipChildren(false);
             overlay.setClipToPadding(false);
-            int widthPx = dp(context, widthDp);
-            int heightPx = dp(context, heightDp);
 
             View widgetView = null;
             if (config.liveMode && !isLiveDisabled()) widgetView = createLiveWidgetView(context, config, widthPx, heightPx, widthDp, heightDp);
@@ -238,7 +230,7 @@ public class MainHook implements IXposedHookLoadPackage {
             }
             overlay.addView(widgetView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             parent.addView(overlay, makeParentLayoutParams(parent, widthPx, heightPx));
-            applyLayerParams(context, overlay, widthDp, heightDp, xDp, yDp, config.scalePercent);
+            applyLayerParams(context, parent, overlay, config.widthDp, config.heightDp, config.xDp, config.yDp, config.scalePercent);
             XposedBridge.log(TAG + ": widget overlay added index=" + config.index + " provider=" + config.provider);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": addWidgetLayer error " + t);
@@ -332,18 +324,24 @@ public class MainHook implements IXposedHookLoadPackage {
         }
     }
 
-    private static void applyLayerParams(Context context, View view, int widthDp, int heightDp, int x, int y, int scalePercent) {
+    private static void applyLayerParams(Context context, ViewGroup parent, View view, int widthDesign, int heightDesign, int xDesign, int yDesign, int scalePercent) {
         try {
-            int widthPx = dp(context, widthDp);
-            int heightPx = dp(context, heightDp);
+            int widthPx = designToPxX(context, widthDesign);
+            int heightPx = designToPxY(context, heightDesign);
             ViewGroup.LayoutParams lp = view.getLayoutParams();
             if (lp != null) {
                 lp.width = widthPx;
                 lp.height = heightPx;
                 view.setLayoutParams(lp);
             }
-            view.setTranslationX(dp(context, x));
-            view.setTranslationY(dp(context, y));
+            int[] parentLocation = new int[2];
+            try { parent.getLocationOnScreen(parentLocation); } catch (Throwable ignored) {}
+            float xPx = designToPxX(context, xDesign) - parentLocation[0];
+            float yPx = designToPxY(context, yDesign) - parentLocation[1];
+            view.setX(xPx);
+            view.setY(yPx);
+            view.setTranslationX(0f);
+            view.setTranslationY(0f);
             float scale = scalePercent / 100f;
             view.setScaleX(scale);
             view.setScaleY(scale);
@@ -560,49 +558,39 @@ public class MainHook implements IXposedHookLoadPackage {
     private static ViewGroup.LayoutParams makeParentLayoutParams(ViewGroup parent, int widthPx, int heightPx) {
         if (parent instanceof LinearLayout) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(widthPx, heightPx);
-            lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            lp.gravity = Gravity.TOP | Gravity.START;
             return lp;
         }
         if (parent instanceof FrameLayout) {
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(widthPx, heightPx);
-            lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            lp.gravity = Gravity.TOP | Gravity.START;
             return lp;
         }
         if (parent instanceof RelativeLayout) {
-            RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(widthPx, heightPx);
-            lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
-            return lp;
+            return new RelativeLayout.LayoutParams(widthPx, heightPx);
         }
         if (parent instanceof GridLayout) return new ViewGroup.LayoutParams(widthPx, heightPx);
         return new ViewGroup.LayoutParams(widthPx, heightPx);
     }
 
-    private static int screenWidthDp(Context context) {
-        try {
-            return Math.max(1, Math.round(context.getResources().getDisplayMetrics().widthPixels / context.getResources().getDisplayMetrics().density));
-        } catch (Throwable ignored) {
-            return 360;
-        }
+    private static int screenWidthPx(Context context) {
+        try { return Math.max(1, context.getResources().getDisplayMetrics().widthPixels); } catch (Throwable ignored) { return DESIGN_WIDTH; }
     }
 
-    private static int screenHeightDp(Context context) {
-        try {
-            return Math.max(1, Math.round(context.getResources().getDisplayMetrics().heightPixels / context.getResources().getDisplayMetrics().density));
-        } catch (Throwable ignored) {
-            return 800;
-        }
+    private static int screenHeightPx(Context context) {
+        try { return Math.max(1, context.getResources().getDisplayMetrics().heightPixels); } catch (Throwable ignored) { return DESIGN_HEIGHT; }
     }
 
-    private static int designToDpX(Context context, int value) {
-        return Math.round(value * (screenWidthDp(context) / (float) DESIGN_WIDTH));
+    private static int designToPxX(Context context, int value) {
+        return Math.round(value * (screenWidthPx(context) / (float) DESIGN_WIDTH));
     }
 
-    private static int designToDpY(Context context, int value) {
-        return Math.round(value * (screenHeightDp(context) / (float) DESIGN_HEIGHT));
+    private static int designToPxY(Context context, int value) {
+        return Math.round(value * (screenHeightPx(context) / (float) DESIGN_HEIGHT));
     }
 
-    private static int dp(Context context, int value) {
-        return Math.round(value * context.getResources().getDisplayMetrics().density);
+    private static int pxToDp(Context context, int px) {
+        try { return Math.max(1, Math.round(px / context.getResources().getDisplayMetrics().density)); } catch (Throwable ignored) { return px; }
     }
 
     private static void hideByIds(View root) {
