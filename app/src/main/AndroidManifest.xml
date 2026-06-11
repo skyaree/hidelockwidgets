@@ -1,30 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
-    <queries>
-        <intent>
-            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-        </intent>
-    </queries>
     <application
-<<<<<<< HEAD
-        android:allowBackup="true"
-        android:label="HideLockWidgets"
-        android:supportsRtl="true"
-        android:theme="@style/AppTheme">
-
-        <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="Lockscreen widgets and depth wallpaper for HiOS/SystemUI" />
-        <meta-data android:name="xposedminversion" android:value="93" />
-=======
         android:theme="@style/AppTheme"
         android:label="Hide Lock Widgets"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:supportsRtl="true">
->>>>>>> 43ab26e (Fix)
 
         <activity
             android:name=".MainActivity"
@@ -34,8 +17,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-<<<<<<< HEAD
-=======
 
         <provider
             android:name=".ConfigProvider"
@@ -45,12 +26,15 @@
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
+
         <meta-data
             android:name="xposeddescription"
-            android:value="Hide lockscreen clock and overlay custom/KWGT widget" />
+            android:value="Hide lockscreen clock and overlay Yandex Music widget" />
+
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
->>>>>>> 43ab26e (Fix)
+
     </application>
+
 </manifest>
