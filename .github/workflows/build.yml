@@ -28,14 +28,133 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Ensure Xposed init asset
+      - name: Ensure Xposed init asset and depth root search patch
         run: |
           mkdir -p app/src/main/assets
           printf '%s\n' 'com.squeeare.hidelockwidgets.MainHook' > app/src/main/assets/xposed_init
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java')
+          s = p.read_text()
+
+          s = s.replace(
+              'View foreground = findTaggedContainsRecursive(wholeRoot, "iconify_depth_wallpaper_foreground");',
+              'View foreground = findIconifyForegroundAcrossRoots(triggerRoot);'
+          )
+          s = s.replace(
+              'View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");',
+              'View foreground = findIconifyForegroundAcrossRoots(triggerRoot);'
+          )
+
+          marker = 'private static View findIconifyForegroundAcrossRoots(View triggerRoot)'
+          if marker not in s:
+              insert_before = '    private static View findTaggedRecursive(View view, String tag) {'
+              helper = r'''
+    private static View findIconifyForegroundAcrossRoots(View triggerRoot) {
+        try {
+            View root = triggerRoot == null ? null : triggerRoot.getRootView();
+            View found = findLikelyIconifyDepthView(root);
+            if (found != null) {
+                logFoundIconifyCandidate("local root", found);
+                return found;
+            }
+
+            Object global = Class.forName("android.view.WindowManagerGlobal").getDeclaredMethod("getInstance").invoke(null);
+            Object roots = getFieldRecursive(global, "mRoots");
+            int count = getArrayOrListSize(roots);
+            XposedBridge.log(TAG + ": WindowManagerGlobal root count=" + count);
+            for (int i = 0; i < count; i++) {
+                Object viewRootImpl = getArrayOrListItem(roots, i);
+                Object viewObj = getFieldRecursive(viewRootImpl, "mView");
+                if (!(viewObj instanceof View)) continue;
+                View wmRoot = (View) viewObj;
+                found = findLikelyIconifyDepthView(wmRoot);
+                if (found != null) {
+                    logFoundIconifyCandidate("WindowManagerGlobal root[" + i + "] " + wmRoot.getClass().getName(), found);
+                    return found;
+                }
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": findIconifyForegroundAcrossRoots error " + t);
+        }
+        return null;
+    }
+
+    private static View findLikelyIconifyDepthView(View root) {
+        if (root == null) return null;
+        View exact = findTaggedContainsRecursive(root, "iconify_depth_wallpaper_foreground");
+        if (exact != null) return exact;
+        exact = findTaggedContainsRecursive(root, "ICONIFY_DEPTH_WALLPAPER_FOREGROUND");
+        if (exact != null) return exact;
+        return findTagWithAllTokensRecursive(root, new String[] {"iconify", "depth", "foreground"});
+    }
+
+    private static View findTagWithAllTokensRecursive(View view, String[] tokens) {
+        if (view == null || tokens == null) return null;
+        Object currentTag = view.getTag();
+        if (currentTag != null) {
+            String text = String.valueOf(currentTag).toLowerCase();
+            boolean ok = true;
+            for (String token : tokens) {
+                if (token == null) continue;
+                if (!text.contains(token.toLowerCase())) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) return view;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findTagWithAllTokensRecursive(group.getChildAt(i), tokens);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static int getArrayOrListSize(Object object) {
+        if (object == null) return 0;
+        try {
+            if (object instanceof java.util.List) return ((java.util.List) object).size();
+            if (object.getClass().isArray()) return java.lang.reflect.Array.getLength(object);
+        } catch (Throwable ignored) { }
+        return 0;
+    }
+
+    private static Object getArrayOrListItem(Object object, int index) {
+        if (object == null) return null;
+        try {
+            if (object instanceof java.util.List) return ((java.util.List) object).get(index);
+            if (object.getClass().isArray()) return java.lang.reflect.Array.get(object, index);
+        } catch (Throwable ignored) { }
+        return null;
+    }
+
+    private static void logFoundIconifyCandidate(String source, View found) {
+        try {
+            Object tag = found.getTag();
+            Object parent = found.getParent();
+            XposedBridge.log(TAG + ": found Iconify depth foreground via " + source + " class=" + found.getClass().getName() + " tag=" + tag + " parent=" + (parent == null ? "null" : parent.getClass().getName()));
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": logFoundIconifyCandidate error " + t);
+        }
+    }
+
+'''
+              if insert_before not in s:
+                  raise SystemExit('insert point not found')
+              s = s.replace(insert_before, helper + insert_before)
+
+          p.write_text(s)
+          PY
           echo '--- xposed_init ---'
           cat app/src/main/assets/xposed_init
           echo '--- MainHook depth marker ---'
           grep -n 'keyguard_root_view for Iconify overlay' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
+          echo '--- WindowManagerGlobal depth marker ---'
+          grep -n 'WindowManagerGlobal root count' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
