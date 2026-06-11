@@ -28,105 +28,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Patch source before build
+      - name: Ensure Xposed init asset
         run: |
           mkdir -p app/src/main/assets
           printf '%s\n' 'com.squeeare.hidelockwidgets.MainHook' > app/src/main/assets/xposed_init
-
-          python3 <<'PY'
-          from pathlib import Path
-
-          hook = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java')
-          s = hook.read_text()
-
-          s = s.replace(
-              'hideKeyguardClockContainerLikeIconify(root);\n            addWidgetToStatusContainer(root);',
-              'hideKeyguardClockContainerLikeIconify(root);\n            if (root.getClass().getName().contains("KeyguardStatusView")) {\n                addWidgetToStatusContainer(root);\n            }'
-          )
-
-          s = s.replace(
-              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = 10.0f;',
-              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;'
-          )
-          s = s.replace('            overlay.bringToFront();\n', '')
-
-          s = s.replace(
-              'disableClipping(statusContainer);\n            View already = findExistingOverlay(statusContainer);',
-              'ViewGroup overlayParent = getDepthCompatibleOverlayParent(root, statusContainer);\n            disableClipping(overlayParent);\n            View already = findExistingOverlay(overlayParent);'
-          )
-          s = s.replace('removeOldOverlays(statusContainer);', 'removeOldOverlays(overlayParent);')
-          s = s.replace(
-              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
-              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
-          )
-          s = s.replace(
-              'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
-              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
-          )
-          s = s.replace(
-              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
-              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
-          )
-
-          if 'private static ViewGroup getDepthCompatibleOverlayParent(' not in s:
-              method = '''\n    private static ViewGroup getDepthCompatibleOverlayParent(View root, ViewGroup fallback) {\n        try {\n            View rootView = root.getRootView();\n\n            int keyguardRootId = root.getResources().getIdentifier("keyguard_root_view", "id", SYSTEMUI_PACKAGE);\n            if (keyguardRootId != 0) {\n                View keyguardRoot = rootView.findViewById(keyguardRootId);\n                if (keyguardRoot instanceof ViewGroup) {\n                    XposedBridge.log(TAG + ": using keyguard_root_view for Iconify overlay");\n                    return (ViewGroup) keyguardRoot;\n                }\n            }\n\n            View foreground = findTaggedContainsRecursive(rootView, "iconify_depth_wallpaper_foreground");\n            if (foreground != null && foreground.getParent() instanceof ViewGroup) {\n                XposedBridge.log(TAG + ": using Iconify foreground parent for overlay");\n                return (ViewGroup) foreground.getParent();\n            }\n        } catch (Throwable t) {\n            XposedBridge.log(TAG + ": getDepthCompatibleOverlayParent error " + t);\n        }\n        return fallback;\n    }\n\n    private static View findTaggedContainsRecursive(View view, String token) {\n        if (view == null || token == null) return null;\n        try {\n            Object tag = view.getTag();\n            if (tag != null && String.valueOf(tag).contains(token)) return view;\n            if (view instanceof ViewGroup) {\n                ViewGroup group = (ViewGroup) view;\n                for (int i = 0; i < group.getChildCount(); i++) {\n                    View found = findTaggedContainsRecursive(group.getChildAt(i), token);\n                    if (found != null) return found;\n                }\n            }\n        } catch (Throwable ignored) { }\n        return null;\n    }\n'''
-              marker = '\n    private static void removeOldOverlays(ViewGroup parent) {'
-              if marker not in s:
-                  raise SystemExit('removeOldOverlays marker not found')
-              s = s.replace(marker, method + marker)
-
-          if 'private static void updateSystemUiWidgetSizeOptions(' not in s:
-              method = '''\n    private static void updateSystemUiWidgetSizeOptions(AppWidgetManager manager, int appWidgetId, Config config) {\n        try {\n            if (manager == null || appWidgetId <= 0 || config == null) return;\n            Bundle options = new Bundle();\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, config.widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, config.heightDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, config.widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, config.heightDp);\n            manager.updateAppWidgetOptions(appWidgetId, options);\n            XposedBridge.log(TAG + ": updated SystemUI widget options id=" + appWidgetId + " w=" + config.widthDp + " h=" + config.heightDp);\n        } catch (Throwable t) {\n            XposedBridge.log(TAG + ": updateSystemUiWidgetSizeOptions error " + t);\n        }\n    }\n'''
-              marker = '\n    private static View createSnapshotView(Context context, Config config, int widthPx, int heightPx) {'
-              if marker not in s:
-                  raise SystemExit('createSnapshotView marker not found')
-              s = s.replace(marker, method + marker)
-
-          s = s.replace(
-              'writeSystemUiWidgetId(savedId);\n                writeSystemUiWidgetProvider(config.provider);',
-              'writeSystemUiWidgetId(savedId);\n                writeSystemUiWidgetProvider(config.provider);\n                updateSystemUiWidgetSizeOptions(manager, savedId, config);'
-          )
-          s = s.replace(
-              'AppWidgetProviderInfo info = manager.getAppWidgetInfo(savedId);',
-              'updateSystemUiWidgetSizeOptions(manager, savedId, config);\n            AppWidgetProviderInfo info = manager.getAppWidgetInfo(savedId);',
-              1
-          )
-
-          hook.write_text(s)
-
-          activity = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainActivity.java')
-          s = activity.read_text()
-          if 'private void updateWidgetSizeOptions(int appWidgetId)' not in s:
-              method = '''\n    private void updateWidgetSizeOptions(int appWidgetId) {\n        try {\n            if (appWidgetId <= 0 || appWidgetManager == null) return;\n            Bundle options = new Bundle();\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, heightDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, heightDp);\n            appWidgetManager.updateAppWidgetOptions(appWidgetId, options);\n        } catch (Throwable t) {\n            toast("Widget size options error:\\n" + t);\n        }\n    }\n'''
-              marker = '\n    private void configureOrSave(int appWidgetId) {'
-              if marker not in s:
-                  raise SystemExit('configureOrSave marker not found')
-              s = s.replace(marker, method + marker)
-
-          replacements = {
-              'pendingWidgetId = appWidgetHost.allocateAppWidgetId();\n        Intent pickIntent':
-                  'pendingWidgetId = appWidgetHost.allocateAppWidgetId();\n        updateWidgetSizeOptions(pendingWidgetId);\n        Intent pickIntent',
-              'pendingWidgetId = appWidgetId;\n                Toast.makeText':
-                  'pendingWidgetId = appWidgetId;\n                updateWidgetSizeOptions(appWidgetId);\n                Toast.makeText',
-              'private void configureOrSave(int appWidgetId) {\n        AppWidgetProviderInfo info':
-                  'private void configureOrSave(int appWidgetId) {\n        updateWidgetSizeOptions(appWidgetId);\n        AppWidgetProviderInfo info',
-              'private void saveWidget(int appWidgetId) {\n        AppWidgetProviderInfo info':
-                  'private void saveWidget(int appWidgetId) {\n        updateWidgetSizeOptions(appWidgetId);\n        AppWidgetProviderInfo info',
-              'private void createPreview(int appWidgetId, AppWidgetProviderInfo info) {\n        try {':
-                  'private void createPreview(int appWidgetId, AppWidgetProviderInfo info) {\n        updateWidgetSizeOptions(appWidgetId);\n        try {'
-          }
-          for a, b in replacements.items():
-              s = s.replace(a, b)
-          activity.write_text(s)
-
-          ht = hook.read_text()
-          print('--- xposed_init ---')
-          print(Path('app/src/main/assets/xposed_init').read_text())
-          print('--- patch checks ---')
-          print('keyguard root first:', 'using keyguard_root_view for Iconify overlay' in ht)
-          print('depth z -1:', 'ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f' in ht)
-          print('systemui sizing:', 'updateSystemUiWidgetSizeOptions' in ht)
-          PY
+          echo '--- xposed_init ---'
+          cat app/src/main/assets/xposed_init
+          echo '--- MainHook depth marker ---'
+          grep -n 'keyguard_root_view for Iconify overlay' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
