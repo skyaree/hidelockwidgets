@@ -28,7 +28,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Patch MainHook for built-in depth wallpaper
+      - name: Patch MainHook for fullscreen own depth
         run: |
           mkdir -p app/src/main/assets
           printf '%s\n' 'com.squeeare.hidelockwidgets.MainHook' > app/src/main/assets/xposed_init
@@ -36,121 +36,81 @@ jobs:
           from pathlib import Path
           p = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java')
           s = p.read_text()
+          s = s.replace('private static final String SNAPSHOT_FILE = ROOT_DIR + "/widget_snapshot.png";\n', 'private static final String SNAPSHOT_FILE = ROOT_DIR + "/widget_snapshot.png";\n    private static final String DEPTH_BACKGROUND_FILE = ROOT_DIR + "/depth_background.png";\n    private static final String DEPTH_FOREGROUND_FILE = ROOT_DIR + "/depth_foreground.png";\n    private static final String DEPTH_BACKGROUND_TAG = "hidelockwidgets_depth_background";\n    private static final String DEPTH_FOREGROUND_TAG = "hidelockwidgets_depth_foreground";\n')
+          s = s.replace('final ViewGroup overlayParent = getIconifyOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);', 'final ViewGroup overlayParent = getCustomDepthOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);\n            ensureCustomDepthLayers(context, overlayParent, config);')
+          s = s.replace('ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);', 'ViewGroup wantedParent = getCustomDepthOverlayParent(triggerRoot, fallback);')
+          s = s.replace('int foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");', 'int foregroundIndex = findDirectChildIndexWithTag(parent, DEPTH_FOREGROUND_TAG);\n            if (foregroundIndex < 0) foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");')
+          s = s.replace('View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");', 'View foreground = findTaggedContainsRecursive(getCustomDepthOverlayParent(triggerRoot, fallback), DEPTH_FOREGROUND_TAG);')
+          s = s.replace('overlay.setZ(ICONIFY_LOCKSCREEN_ITEM_Z);', 'overlay.setZ(1.0f);')
+          s = s.replace('v.setZ(ICONIFY_LOCKSCREEN_ITEM_Z);', 'v.setZ(1.0f);')
+          s = s.replace('config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            XposedBridge.log(TAG + ": config provider="', 'config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            config.customDepth = parseBoolean(properties.getProperty("custom_depth"), true);\n            config.depthBackgroundPath = properties.getProperty("depth_background", DEPTH_BACKGROUND_FILE);\n            config.depthForegroundPath = properties.getProperty("depth_foreground", DEPTH_FOREGROUND_FILE);\n            XposedBridge.log(TAG + ": config provider="')
+          s = s.replace('String snapshotPath;\n    }', 'String snapshotPath;\n        boolean customDepth;\n        String depthBackgroundPath;\n        String depthForegroundPath;\n    }')
+          if 'private static void ensureCustomDepthLayers(Context context, ViewGroup parent, Config config)' not in s:
+              helper = '''    private static ViewGroup getCustomDepthOverlayParent(View triggerRoot, ViewGroup fallback) {
+        try {
+            if (triggerRoot instanceof ViewGroup) {
+                XposedBridge.log(TAG + ": using own depth wallpaper root=" + triggerRoot.getClass().getName());
+                return (ViewGroup) triggerRoot;
+            }
+        } catch (Throwable t) { XposedBridge.log(TAG + ": getCustomDepthOverlayParent error " + t); }
+        return fallback;
+    }
 
-          s = s.replace(
-              'private static final String SNAPSHOT_FILE = ROOT_DIR + "/widget_snapshot.png";\n',
-              'private static final String SNAPSHOT_FILE = ROOT_DIR + "/widget_snapshot.png";\n'
-              '    private static final String DEPTH_BACKGROUND_FILE = ROOT_DIR + "/depth_background.png";\n'
-              '    private static final String DEPTH_FOREGROUND_FILE = ROOT_DIR + "/depth_foreground.png";\n'
-              '    private static final String DEPTH_BACKGROUND_TAG = "hidelockwidgets_depth_background";\n'
-              '    private static final String DEPTH_FOREGROUND_TAG = "hidelockwidgets_depth_foreground";\n'
-          )
+    private static void ensureCustomDepthLayers(Context context, ViewGroup parent, Config config) {
+        try {
+            if (parent == null || config == null || !config.customDepth) return;
+            removeTaggedViews(parent, DEPTH_BACKGROUND_TAG);
+            removeTaggedViews(parent, DEPTH_FOREGROUND_TAG);
+            android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+            int[] loc = new int[2];
+            parent.getLocationOnScreen(loc);
+            View bg = createDepthImageView(context, config.depthBackgroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_BACKGROUND_TAG);
+            if (bg != null) {
+                bg.setZ(0.0f);
+                bg.setTranslationX(-loc[0]);
+                bg.setTranslationY(-loc[1]);
+                parent.addView(bg, 0, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
+                XposedBridge.log(TAG + ": own depth background added fullscreen size=" + dm.widthPixels + "x" + dm.heightPixels + " shift=" + (-loc[0]) + "," + (-loc[1]));
+            } else { XposedBridge.log(TAG + ": own depth background missing path=" + config.depthBackgroundPath); }
+            View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_FOREGROUND_TAG);
+            if (fg != null) {
+                fg.setZ(2.0f);
+                fg.setTranslationX(-loc[0]);
+                fg.setTranslationY(-loc[1]);
+                parent.addView(fg, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
+                XposedBridge.log(TAG + ": own depth foreground added fullscreen size=" + dm.widthPixels + "x" + dm.heightPixels + " z=" + fg.getZ());
+            } else { XposedBridge.log(TAG + ": own depth foreground missing path=" + config.depthForegroundPath); }
+        } catch (Throwable t) { XposedBridge.log(TAG + ": ensureCustomDepthLayers error " + t); }
+    }
 
-          s = s.replace(
-              'final ViewGroup overlayParent = getIconifyOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);',
-              'final ViewGroup overlayParent = getCustomDepthOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);\n            ensureCustomDepthLayers(context, overlayParent, config);'
-          )
+    private static View createDepthImageView(Context context, String path, ImageView.ScaleType scaleType, String tag) {
+        try {
+            if (path == null || path.length() == 0) return null;
+            File file = new File(path);
+            if (!file.exists()) return null;
+            Bitmap bitmap = BitmapFactory.decodeFile(path);
+            if (bitmap == null) return null;
+            ImageView imageView = new ImageView(context);
+            imageView.setTag(tag);
+            imageView.setImageBitmap(bitmap);
+            imageView.setScaleType(scaleType);
+            imageView.setAdjustViewBounds(false);
+            imageView.setClipToOutline(false);
+            return imageView;
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": createDepthImageView error " + path + " / " + t);
+            return null;
+        }
+    }
 
-          s = s.replace(
-              'ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);',
-              'ViewGroup wantedParent = getCustomDepthOverlayParent(triggerRoot, fallback);'
-          )
-
-          s = s.replace(
-              'int foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");',
-              'int foregroundIndex = findDirectChildIndexWithTag(parent, DEPTH_FOREGROUND_TAG);\n            if (foregroundIndex < 0) foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");'
-          )
-
-          s = s.replace(
-              'View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");',
-              'View foreground = findTaggedContainsRecursive(getCustomDepthOverlayParent(triggerRoot, fallback), DEPTH_FOREGROUND_TAG);'
-          )
-
-          s = s.replace(
-              'config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            XposedBridge.log(TAG + ": config provider="',
-              'config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            config.customDepth = parseBoolean(properties.getProperty("custom_depth"), true);\n            config.depthBackgroundPath = properties.getProperty("depth_background", DEPTH_BACKGROUND_FILE);\n            config.depthForegroundPath = properties.getProperty("depth_foreground", DEPTH_FOREGROUND_FILE);\n            XposedBridge.log(TAG + ": config provider="'
-          )
-
-          s = s.replace(
-              'String snapshotPath;\n    }',
-              'String snapshotPath;\n        boolean customDepth;\n        String depthBackgroundPath;\n        String depthForegroundPath;\n    }'
-          )
-
-          marker = 'private static void ensureCustomDepthLayers(Context context, ViewGroup parent, Config config)'
-          if marker not in s:
-              insert_before = '    private static ViewGroup getIconifyOverlayParent(View triggerRoot, ViewGroup fallback) {'
-              helper = '\n'.join([
-                  '    private static ViewGroup getCustomDepthOverlayParent(View triggerRoot, ViewGroup fallback) {',
-                  '        try {',
-                  '            if (triggerRoot instanceof ViewGroup) {',
-                  '                XposedBridge.log(TAG + ": using own depth wallpaper root=" + triggerRoot.getClass().getName());',
-                  '                return (ViewGroup) triggerRoot;',
-                  '            }',
-                  '        } catch (Throwable t) {',
-                  '            XposedBridge.log(TAG + ": getCustomDepthOverlayParent error " + t);',
-                  '        }',
-                  '        return fallback;',
-                  '    }',
-                  '',
-                  '    private static void ensureCustomDepthLayers(Context context, ViewGroup parent, Config config) {',
-                  '        try {',
-                  '            if (parent == null || config == null || !config.customDepth) return;',
-                  '            removeTaggedViews(parent, DEPTH_BACKGROUND_TAG);',
-                  '            removeTaggedViews(parent, DEPTH_FOREGROUND_TAG);',
-                  '',
-                  '            View bg = createDepthImageView(context, config.depthBackgroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_BACKGROUND_TAG);',
-                  '            if (bg != null) {',
-                  '                bg.setZ(-2.0f);',
-                  '                parent.addView(bg, 0, new ViewGroup.LayoutParams(-1, -1));',
-                  '                XposedBridge.log(TAG + ": own depth background added path=" + config.depthBackgroundPath);',
-                  '            } else {',
-                  '                XposedBridge.log(TAG + ": own depth background missing path=" + config.depthBackgroundPath);',
-                  '            }',
-                  '',
-                  '            View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.FIT_CENTER, DEPTH_FOREGROUND_TAG);',
-                  '            if (fg != null) {',
-                  '                fg.setZ(ICONIFY_FOREGROUND_Z);',
-                  '                parent.addView(fg, new ViewGroup.LayoutParams(-1, -1));',
-                  '                XposedBridge.log(TAG + ": own depth foreground added path=" + config.depthForegroundPath + " z=" + fg.getZ());',
-                  '            } else {',
-                  '                XposedBridge.log(TAG + ": own depth foreground missing path=" + config.depthForegroundPath);',
-                  '            }',
-                  '        } catch (Throwable t) {',
-                  '            XposedBridge.log(TAG + ": ensureCustomDepthLayers error " + t);',
-                  '        }',
-                  '    }',
-                  '',
-                  '    private static View createDepthImageView(Context context, String path, ImageView.ScaleType scaleType, String tag) {',
-                  '        try {',
-                  '            if (path == null || path.length() == 0) return null;',
-                  '            File file = new File(path);',
-                  '            if (!file.exists()) return null;',
-                  '            Bitmap bitmap = BitmapFactory.decodeFile(path);',
-                  '            if (bitmap == null) return null;',
-                  '            ImageView imageView = new ImageView(context);',
-                  '            imageView.setTag(tag);',
-                  '            imageView.setImageBitmap(bitmap);',
-                  '            imageView.setScaleType(scaleType);',
-                  '            imageView.setAdjustViewBounds(false);',
-                  '            imageView.setClipToOutline(false);',
-                  '            return imageView;',
-                  '        } catch (Throwable t) {',
-                  '            XposedBridge.log(TAG + ": createDepthImageView error " + path + " / " + t);',
-                  '            return null;',
-                  '        }',
-                  '    }',
-                  '',
-              ]) + '\n'
-              if insert_before not in s:
-                  raise SystemExit('insert point not found for custom depth helper')
-              s = s.replace(insert_before, helper + insert_before)
-
+'''
+              s = s.replace('    private static ViewGroup getIconifyOverlayParent(View triggerRoot, ViewGroup fallback) {', helper + '    private static ViewGroup getIconifyOverlayParent(View triggerRoot, ViewGroup fallback) {')
           p.write_text(s)
           PY
           echo '--- xposed_init ---'
           cat app/src/main/assets/xposed_init
-          echo '--- own depth markers ---'
-          grep -nE 'using own depth wallpaper root|own depth foreground added|DEPTH_BACKGROUND_FILE|getCustomDepthOverlayParent\(triggerRoot, fallback\)' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
+          echo '--- fullscreen own depth markers ---'
+          grep -nE 'own depth background added fullscreen|own depth foreground added fullscreen|overlay.setZ\(1.0f\)' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
