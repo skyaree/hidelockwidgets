@@ -1,98 +1,36 @@
-# HideLockWidgets V3 Widget Studio
+# HideLockWidgets Depth UI
 
-LSPosed module + settings app for custom lockscreen widgets on HiOS/SystemUI.
+Material 3 / Compose settings UI for HideLockWidgets.
 
-## V3
+## Pages
 
-- Home screen in a FlClash / KernelSU Next inspired Material 3 style
-- Real widget picker using `AppWidgetManager.getInstalledProviders()`
-- Empty lockscreen preview canvas
-- Drag / scale widgets, background and foreground layers
-- Depth wallpaper: background -> widgets -> foreground
-- Apply button writes `/data/local/tmp/hidelockwidgets/config.txt`
-- Applies `appwidget grantbind --package com.android.systemui --user 0`
-- Restarts SystemUI from the app
-- LSPosed metadata and `xposed_init` included
+- Settings: choose background and foreground images, enable depth wallpaper, set preview widget count.
+- Preview: drag and pinch-to-zoom foreground/background layers in a lockscreen preview.
 
-## Notes
+## Build locally
 
-Grant can also be run manually:
-# HideLockWidgets LSPosed
-
-LSPosed module for hiding stock lockscreen clocks on HiOS/SystemUI and placing a Yandex Music AppWidget/snapshot on the lockscreen.
-
-## Important
-
-Scopes:
-
-- `com.android.systemui`
-- `android`
-- `system`
-- `com.squeeare.hidelockwidgets`
-
-Grant SystemUI AppWidget bind permission once:
-
-```sh
-su -c 'appwidget grantbind --package com.android.systemui --user 0'
+```bash
+gradle assembleDebug
 ```
 
-If LSPosed does not show the module, reinstall the APK and check that `assets/xposed_init` exists.
+## Build on GitHub Actions
 
+The workflow is here:
 
-## V7
-- Hotfix: Apply/Restart/Soft Restart/Reset now use a more reliable root path.
-- Grants SystemUI and app package for AppWidget bind.
-- Copies depth images into /data/local/tmp/hidelockwidgets before applying.
-## Config
-
-Path:
-
-```txt
-/data/local/tmp/hidelockwidgets/config.txt
+```text
+.github/workflows/build.yml
 ```
 
-Example:
+Run it from GitHub Actions -> Build APK -> Run workflow.
 
-```ini
-provider=ru.yandex.music/ru.yandex.music.ui.widget.WidgetRecentlyRectangleReceiver
-widget_id=23
-x_dp=0
-y_dp=120
-width_dp=320
-height_dp=160
-scale_percent=100
-live_mode=true
-depth_compat=true
-snapshot=/data/local/tmp/hidelockwidgets/widget_snapshot.png
+## Output
+
+The debug APK will be uploaded as an artifact named:
+
+```text
+HideLockWidgets-debug-apk
 ```
 
-## Iconify stable depth wallpaper compatibility
+## Note
 
-This version uses Iconify stable tags exactly:
-
-- `iconify_lockscreen_widget`
-- `iconify_depth_wallpaper_foreground`
-- `iconify_depth_wallpaper_background`
-
-The widget tag is combined as:
-
-```txt
-hidelockwidgets_widget|iconify_lockscreen_widget
-```
-
-Iconify splits tags by `|`, so it can detect this widget as a lockscreen widget. The module keeps the widget at `z=-1`, Iconify background at `z=-2`, and Iconify foreground/subject at `z=-0.5`.
-
-## Reset live widget
-
-```sh
-su -c 'rm -f /data/local/tmp/hidelockwidgets/systemui_widget_id.txt'
-su -c 'rm -f /data/local/tmp/hidelockwidgets/systemui_widget_provider.txt'
-su -c 'rm -f /data/local/tmp/hidelockwidgets/disable_live'
-su -c 'killall com.android.systemui'
-```
-
-## Logs
-
-```sh
-su -c 'grep -i "HideLockWidgets" /data/adb/lspd/log/verbose_*.log /data/adb/lspd/log/modules_*.log 2>/dev/null | grep -i "Iconify stable depth compat\|SystemUI bind result\|live SystemUI\|snapshot" | tail -150'
-```
+This archive contains the settings UI and a placeholder `MainHook.java` so the project keeps the LSPosed entry point path. Replace `MainHook.java` with your current working hook when you merge it into the real module.
