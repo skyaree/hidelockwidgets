@@ -52,8 +52,18 @@ jobs:
           )
 
           s = s.replace(
+              'ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);',
+              'ViewGroup wantedParent = getCustomDepthOverlayParent(triggerRoot, fallback);'
+          )
+
+          s = s.replace(
               'int foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");',
               'int foregroundIndex = findDirectChildIndexWithTag(parent, DEPTH_FOREGROUND_TAG);\n            if (foregroundIndex < 0) foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");'
+          )
+
+          s = s.replace(
+              'View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");',
+              'View foreground = findTaggedContainsRecursive(getCustomDepthOverlayParent(triggerRoot, fallback), DEPTH_FOREGROUND_TAG);'
           )
 
           s = s.replace(
@@ -141,7 +151,7 @@ jobs:
           echo '--- xposed_init ---'
           cat app/src/main/assets/xposed_init
           echo '--- own depth markers ---'
-          grep -nE 'using own depth wallpaper root|own depth foreground added|DEPTH_BACKGROUND_FILE' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
+          grep -nE 'using own depth wallpaper root|own depth foreground added|DEPTH_BACKGROUND_FILE|getCustomDepthOverlayParent\(triggerRoot, fallback\)' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
