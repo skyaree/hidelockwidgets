@@ -44,17 +44,9 @@ jobs:
               'hideKeyguardClockContainerLikeIconify(root);\n            if (root.getClass().getName().contains("KeyguardStatusView")) {\n                addWidgetToStatusContainer(root);\n            }'
           )
 
-          # Iconify depth layering: background=-2, lockscreen items=-1, foreground/subject=-0.5.
-          # The widget must be added into the same parent as Iconify depth wallpaper / keyguard_root_view,
-          # not inside KeyguardStatusView, otherwise the whole parent can sit above the foreground.
           s = s.replace(
               'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = 10.0f;',
               'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;'
-          )
-
-          s = s.replace(
-              'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            overlay.bringToFront();\n            applyOverlayParams(context, overlay, config);',
-              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
           )
           s = s.replace('            overlay.bringToFront();\n', '')
 
@@ -67,9 +59,17 @@ jobs:
               'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
               'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
           )
+          s = s.replace(
+              'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
+              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
+          )
+          s = s.replace(
+              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
+              'overlayParent.addView(overlay, 0, makeParentLayoutParams(overlayParent, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
+          )
 
           if 'private static ViewGroup getDepthCompatibleOverlayParent(' not in s:
-              method = '''\n    private static ViewGroup getDepthCompatibleOverlayParent(View root, ViewGroup fallback) {\n        try {\n            View rootView = root.getRootView();\n\n            View foreground = findTaggedContainsRecursive(rootView, "iconify_depth_wallpaper_foreground");\n            if (foreground != null && foreground.getParent() instanceof ViewGroup) {\n                XposedBridge.log(TAG + ": using Iconify foreground parent for overlay");\n                return (ViewGroup) foreground.getParent();\n            }\n\n            View background = findTaggedContainsRecursive(rootView, "iconify_depth_wallpaper_background");\n            if (background != null && background.getParent() instanceof ViewGroup) {\n                XposedBridge.log(TAG + ": using Iconify background parent for overlay");\n                return (ViewGroup) background.getParent();\n            }\n\n            int keyguardRootId = root.getResources().getIdentifier("keyguard_root_view", "id", SYSTEMUI_PACKAGE);\n            if (keyguardRootId != 0) {\n                View keyguardRoot = rootView.findViewById(keyguardRootId);\n                if (keyguardRoot instanceof ViewGroup) {\n                    XposedBridge.log(TAG + ": using keyguard_root_view for overlay");\n                    return (ViewGroup) keyguardRoot;\n                }\n            }\n        } catch (Throwable t) {\n            XposedBridge.log(TAG + ": getDepthCompatibleOverlayParent error " + t);\n        }\n        return fallback;\n    }\n\n    private static View findTaggedContainsRecursive(View view, String token) {\n        if (view == null || token == null) return null;\n        try {\n            Object tag = view.getTag();\n            if (tag != null && String.valueOf(tag).contains(token)) return view;\n            if (view instanceof ViewGroup) {\n                ViewGroup group = (ViewGroup) view;\n                for (int i = 0; i < group.getChildCount(); i++) {\n                    View found = findTaggedContainsRecursive(group.getChildAt(i), token);\n                    if (found != null) return found;\n                }\n            }\n        } catch (Throwable ignored) { }\n        return null;\n    }\n'''
+              method = '''\n    private static ViewGroup getDepthCompatibleOverlayParent(View root, ViewGroup fallback) {\n        try {\n            View rootView = root.getRootView();\n\n            int keyguardRootId = root.getResources().getIdentifier("keyguard_root_view", "id", SYSTEMUI_PACKAGE);\n            if (keyguardRootId != 0) {\n                View keyguardRoot = rootView.findViewById(keyguardRootId);\n                if (keyguardRoot instanceof ViewGroup) {\n                    XposedBridge.log(TAG + ": using keyguard_root_view for Iconify overlay");\n                    return (ViewGroup) keyguardRoot;\n                }\n            }\n\n            View foreground = findTaggedContainsRecursive(rootView, "iconify_depth_wallpaper_foreground");\n            if (foreground != null && foreground.getParent() instanceof ViewGroup) {\n                XposedBridge.log(TAG + ": using Iconify foreground parent for overlay");\n                return (ViewGroup) foreground.getParent();\n            }\n        } catch (Throwable t) {\n            XposedBridge.log(TAG + ": getDepthCompatibleOverlayParent error " + t);\n        }\n        return fallback;\n    }\n\n    private static View findTaggedContainsRecursive(View view, String token) {\n        if (view == null || token == null) return null;\n        try {\n            Object tag = view.getTag();\n            if (tag != null && String.valueOf(tag).contains(token)) return view;\n            if (view instanceof ViewGroup) {\n                ViewGroup group = (ViewGroup) view;\n                for (int i = 0; i < group.getChildCount(); i++) {\n                    View found = findTaggedContainsRecursive(group.getChildAt(i), token);\n                    if (found != null) return found;\n                }\n            }\n        } catch (Throwable ignored) { }\n        return null;\n    }\n'''
               marker = '\n    private static void removeOldOverlays(ViewGroup parent) {'
               if marker not in s:
                   raise SystemExit('removeOldOverlays marker not found')
@@ -120,15 +120,11 @@ jobs:
           activity.write_text(s)
 
           ht = hook.read_text()
-          at = activity.read_text()
           print('--- xposed_init ---')
           print(Path('app/src/main/assets/xposed_init').read_text())
           print('--- patch checks ---')
+          print('keyguard root first:', 'using keyguard_root_view for Iconify overlay' in ht)
           print('depth z -1:', 'ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f' in ht)
-          print('no bringToFront:', 'bringToFront' not in ht)
-          print('depth overlay parent:', 'getDepthCompatibleOverlayParent' in ht)
-          print('only KeyguardStatusView:', 'contains("KeyguardStatusView")' in ht)
-          print('preview sizing:', 'updateWidgetSizeOptions' in at)
           print('systemui sizing:', 'updateSystemUiWidgetSizeOptions' in ht)
           PY
 
