@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # HideLockWidgets V3 Widget Studio
 
 LSPosed module + settings app for custom lockscreen widgets on HiOS/SystemUI.
@@ -18,7 +17,6 @@ LSPosed module + settings app for custom lockscreen widgets on HiOS/SystemUI.
 ## Notes
 
 Grant can also be run manually:
-=======
 # HideLockWidgets LSPosed
 
 LSPosed module for hiding stock lockscreen clocks on HiOS/SystemUI and placing a Yandex Music AppWidget/snapshot on the lockscreen.
@@ -33,13 +31,11 @@ Scopes:
 - `com.squeeare.hidelockwidgets`
 
 Grant SystemUI AppWidget bind permission once:
->>>>>>> 43ab26e (Fix)
 
 ```sh
 su -c 'appwidget grantbind --package com.android.systemui --user 0'
 ```
 
-<<<<<<< HEAD
 If LSPosed does not show the module, reinstall the APK and check that `assets/xposed_init` exists.
 
 
@@ -47,7 +43,6 @@ If LSPosed does not show the module, reinstall the APK and check that `assets/xp
 - Hotfix: Apply/Restart/Soft Restart/Reset now use a more reliable root path.
 - Grants SystemUI and app package for AppWidget bind.
 - Copies depth images into /data/local/tmp/hidelockwidgets before applying.
-=======
 ## Config
 
 Path:
@@ -101,4 +96,3 @@ su -c 'killall com.android.systemui'
 ```sh
 su -c 'grep -i "HideLockWidgets" /data/adb/lspd/log/verbose_*.log /data/adb/lspd/log/modules_*.log 2>/dev/null | grep -i "Iconify stable depth compat\|SystemUI bind result\|live SystemUI\|snapshot" | tail -150'
 ```
->>>>>>> 43ab26e (Fix)
