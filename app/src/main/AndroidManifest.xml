@@ -1,5 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
@@ -9,6 +9,7 @@
         </intent>
     </queries>
     <application
+<<<<<<< HEAD
         android:allowBackup="true"
         android:label="HideLockWidgets"
         android:supportsRtl="true"
@@ -17,6 +18,13 @@
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data android:name="xposeddescription" android:value="Lockscreen widgets and depth wallpaper for HiOS/SystemUI" />
         <meta-data android:name="xposedminversion" android:value="93" />
+=======
+        android:theme="@style/AppTheme"
+        android:label="Hide Lock Widgets"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:supportsRtl="true">
+>>>>>>> 43ab26e (Fix)
 
         <activity
             android:name=".MainActivity"
@@ -26,5 +34,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+<<<<<<< HEAD
+=======
+
+        <provider
+            android:name=".ConfigProvider"
+            android:authorities="com.squeeare.hidelockwidgets.config"
+            android:exported="true" />
+
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="Hide lockscreen clock and overlay custom/KWGT widget" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+>>>>>>> 43ab26e (Fix)
     </application>
 </manifest>
