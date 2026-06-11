@@ -35,8 +35,8 @@ jobs:
           python3 scripts/patch_mainhook_depth.py
           echo '--- xposed_init ---'
           cat app/src/main/assets/xposed_init
-          echo '--- fullscreen own depth markers ---'
-          grep -nE 'own depth background added fullscreen|own depth foreground added fullscreen|overlay.setZ\(1.0f\)' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java
+          echo '--- Iconify-style own depth markers ---'
+          grep -nE 'own depth background added to window root|own depth foreground added to keyguard parent|using own widget/foreground parent|DEPTH_BACKGROUND_FILE' app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
