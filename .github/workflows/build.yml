@@ -38,6 +38,7 @@ jobs:
 
           hook = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java')
           s = hook.read_text()
+
           s = s.replace(
               'hideKeyguardClockContainerLikeIconify(root);\n            addWidgetToStatusContainer(root);',
               'hideKeyguardClockContainerLikeIconify(root);\n            if (root.getClass().getName().contains("KeyguardStatusView")) {\n                addWidgetToStatusContainer(root);\n            }'
@@ -50,6 +51,24 @@ jobs:
               'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
               'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            overlay.bringToFront();\n            applyOverlayParams(context, overlay, config);'
           )
+
+          if 'private static void updateSystemUiWidgetSizeOptions(' not in s:
+              method = '''\n    private static void updateSystemUiWidgetSizeOptions(AppWidgetManager manager, int appWidgetId, Config config) {\n        try {\n            if (manager == null || appWidgetId <= 0 || config == null) return;\n            Bundle options = new Bundle();\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, config.widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, config.heightDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, config.widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, config.heightDp);\n            manager.updateAppWidgetOptions(appWidgetId, options);\n            XposedBridge.log(TAG + ": updated SystemUI widget options id=" + appWidgetId + " w=" + config.widthDp + " h=" + config.heightDp);\n        } catch (Throwable t) {\n            XposedBridge.log(TAG + ": updateSystemUiWidgetSizeOptions error " + t);\n        }\n    }\n'''
+              marker = '\n    private static View createSnapshotView(Context context, Config config, int widthPx, int heightPx) {'
+              if marker not in s:
+                  raise SystemExit('createSnapshotView marker not found')
+              s = s.replace(marker, method + marker)
+
+          s = s.replace(
+              'writeSystemUiWidgetId(savedId);\n                writeSystemUiWidgetProvider(config.provider);',
+              'writeSystemUiWidgetId(savedId);\n                writeSystemUiWidgetProvider(config.provider);\n                updateSystemUiWidgetSizeOptions(manager, savedId, config);'
+          )
+          s = s.replace(
+              'AppWidgetProviderInfo info = manager.getAppWidgetInfo(savedId);',
+              'updateSystemUiWidgetSizeOptions(manager, savedId, config);\n            AppWidgetProviderInfo info = manager.getAppWidgetInfo(savedId);',
+              1
+          )
+
           hook.write_text(s)
 
           activity = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainActivity.java')
@@ -83,7 +102,8 @@ jobs:
           print('hook visible z:', '10.0f' in hook.read_text())
           print('only KeyguardStatusView:', 'contains("KeyguardStatusView")' in hook.read_text())
           print('bringToFront:', 'bringToFront' in hook.read_text())
-          print('widget sizing:', 'updateWidgetSizeOptions' in activity.read_text())
+          print('preview sizing:', 'updateWidgetSizeOptions' in activity.read_text())
+          print('systemui sizing:', 'updateSystemUiWidgetSizeOptions' in hook.read_text())
           PY
 
       - name: Set up Gradle
