@@ -15,12 +15,12 @@ if 'DEPTH_BACKGROUND_FILE' not in s:
 
 s = s.replace(
     'final ViewGroup overlayParent = getIconifyOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);',
-    'final ViewGroup overlayParent = getCustomDepthOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);\n            ensureCustomDepthLayers(context, overlayParent, config);'
+    'final ViewGroup overlayParent = getOwnWidgetParent(triggerRoot, fallback);\n            disableClipping(overlayParent);\n            ensureOwnDepthBackground(context, triggerRoot, config);\n            ensureOwnDepthForeground(context, overlayParent, config);'
 )
 
 s = s.replace(
     'ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);',
-    'ViewGroup wantedParent = getCustomDepthOverlayParent(triggerRoot, fallback);'
+    'ViewGroup wantedParent = getOwnWidgetParent(triggerRoot, fallback);'
 )
 
 s = s.replace(
@@ -30,11 +30,8 @@ s = s.replace(
 
 s = s.replace(
     'View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");',
-    'View foreground = findTaggedContainsRecursive(getCustomDepthOverlayParent(triggerRoot, fallback), DEPTH_FOREGROUND_TAG);'
+    'View foreground = findTaggedContainsRecursive(getOwnWidgetParent(triggerRoot, fallback), DEPTH_FOREGROUND_TAG);'
 )
-
-s = s.replace('overlay.setZ(ICONIFY_LOCKSCREEN_ITEM_Z);', 'overlay.setZ(1.0f);')
-s = s.replace('v.setZ(ICONIFY_LOCKSCREEN_ITEM_Z);', 'v.setZ(1.0f);')
 
 s = s.replace(
     'config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            XposedBridge.log(TAG + ": config provider="',
@@ -46,53 +43,71 @@ s = s.replace(
     'String snapshotPath;\n        boolean customDepth;\n        String depthBackgroundPath;\n        String depthForegroundPath;\n    }'
 )
 
-helper_marker = 'private static void ensureCustomDepthLayers(Context context, ViewGroup parent, Config config)'
+helper_marker = 'private static void ensureOwnDepthBackground(Context context, View triggerRoot, Config config)'
 if helper_marker not in s:
-    helper = '''    private static ViewGroup getCustomDepthOverlayParent(View triggerRoot, ViewGroup fallback) {
+    helper = '''    private static ViewGroup getOwnWidgetParent(View triggerRoot, ViewGroup fallback) {
         try {
             if (triggerRoot instanceof ViewGroup) {
-                XposedBridge.log(TAG + ": using own depth wallpaper root=" + triggerRoot.getClass().getName());
+                XposedBridge.log(TAG + ": using own widget/foreground parent=" + triggerRoot.getClass().getName());
                 return (ViewGroup) triggerRoot;
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": getCustomDepthOverlayParent error " + t);
+            XposedBridge.log(TAG + ": getOwnWidgetParent error " + t);
         }
         return fallback;
     }
 
-    private static void ensureCustomDepthLayers(Context context, ViewGroup parent, Config config) {
+    private static ViewGroup getOwnWindowRoot(View triggerRoot) {
         try {
-            if (parent == null || config == null || !config.customDepth) return;
-            removeTaggedViews(parent, DEPTH_BACKGROUND_TAG);
-            removeTaggedViews(parent, DEPTH_FOREGROUND_TAG);
+            View root = triggerRoot == null ? null : triggerRoot.getRootView();
+            if (root instanceof ViewGroup) return (ViewGroup) root;
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": getOwnWindowRoot error " + t);
+        }
+        return null;
+    }
 
+    private static void ensureOwnDepthBackground(Context context, View triggerRoot, Config config) {
+        try {
+            if (context == null || triggerRoot == null || config == null || !config.customDepth) return;
+            ViewGroup root = getOwnWindowRoot(triggerRoot);
+            if (root == null) return;
+            disableClipping(root);
+            removeTaggedViews(root, DEPTH_BACKGROUND_TAG);
+            View bg = createDepthImageView(context, config.depthBackgroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_BACKGROUND_TAG);
+            if (bg == null) {
+                XposedBridge.log(TAG + ": own depth background missing path=" + config.depthBackgroundPath);
+                return;
+            }
+            android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+            bg.setZ(-2.0f);
+            root.addView(bg, 0, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
+            XposedBridge.log(TAG + ": own depth background added to window root=" + root.getClass().getName() + " size=" + dm.widthPixels + "x" + dm.heightPixels + " z=" + bg.getZ());
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": ensureOwnDepthBackground error " + t);
+        }
+    }
+
+    private static void ensureOwnDepthForeground(Context context, ViewGroup parent, Config config) {
+        try {
+            if (context == null || parent == null || config == null || !config.customDepth) return;
+            disableClipping(parent);
+            removeTaggedViews(parent, DEPTH_FOREGROUND_TAG);
             android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
             int[] loc = new int[2];
             parent.getLocationOnScreen(loc);
-
-            View bg = createDepthImageView(context, config.depthBackgroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_BACKGROUND_TAG);
-            if (bg != null) {
-                bg.setZ(0.0f);
-                bg.setTranslationX(-loc[0]);
-                bg.setTranslationY(-loc[1]);
-                parent.addView(bg, 0, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
-                XposedBridge.log(TAG + ": own depth background added fullscreen size=" + dm.widthPixels + "x" + dm.heightPixels + " shift=" + (-loc[0]) + "," + (-loc[1]) + " z=" + bg.getZ());
-            } else {
-                XposedBridge.log(TAG + ": own depth background missing path=" + config.depthBackgroundPath);
-            }
-
             View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_FOREGROUND_TAG);
-            if (fg != null) {
-                fg.setZ(2.0f);
-                fg.setTranslationX(-loc[0]);
-                fg.setTranslationY(-loc[1]);
-                parent.addView(fg, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
-                XposedBridge.log(TAG + ": own depth foreground added fullscreen size=" + dm.widthPixels + "x" + dm.heightPixels + " shift=" + (-loc[0]) + "," + (-loc[1]) + " z=" + fg.getZ());
-            } else {
+            if (fg == null) {
                 XposedBridge.log(TAG + ": own depth foreground missing path=" + config.depthForegroundPath);
+                return;
             }
+            fg.setZ(-0.5f);
+            fg.setTranslationX(-loc[0]);
+            fg.setTranslationY(-loc[1]);
+            parent.addView(fg, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
+            XposedBridge.log(TAG + ": own depth foreground added to keyguard parent=" + parent.getClass().getName() + " size=" + dm.widthPixels + "x" + dm.heightPixels + " shift=" + (-loc[0]) + "," + (-loc[1]) + " z=" + fg.getZ());
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": ensureCustomDepthLayers error " + t);
+            XposedBridge.log(TAG + ": ensureOwnDepthForeground error " + t);
         }
     }
 
