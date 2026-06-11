@@ -54,9 +54,12 @@ jobs:
 
           activity = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainActivity.java')
           s = activity.read_text()
-          if 'import android.os.Bundle;' in s and 'AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH' in s and 'private void updateWidgetSizeOptions(int appWidgetId)' not in s:
+          if 'private void updateWidgetSizeOptions(int appWidgetId)' not in s:
               method = '''\n    private void updateWidgetSizeOptions(int appWidgetId) {\n        try {\n            if (appWidgetId <= 0 || appWidgetManager == null) return;\n            Bundle options = new Bundle();\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, heightDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, heightDp);\n            appWidgetManager.updateAppWidgetOptions(appWidgetId, options);\n        } catch (Throwable t) {\n            toast("Widget size options error:\\n" + t);\n        }\n    }\n'''
-              s = s.replace('\n    private void configureOrSave(int appWidgetId) {', method + '\n    private void configureOrSave(int appWidgetId) {')
+              marker = '\n    private void configureOrSave(int appWidgetId) {'
+              if marker not in s:
+                  raise SystemExit('configureOrSave marker not found')
+              s = s.replace(marker, method + marker)
 
           replacements = {
               'pendingWidgetId = appWidgetHost.allocateAppWidgetId();\n        Intent pickIntent':
