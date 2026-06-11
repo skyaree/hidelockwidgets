@@ -38,6 +38,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public class MainHook implements IXposedHookLoadPackage {
     private static final String TAG = "HideLockWidgets";
     private static final String SYSTEMUI_PACKAGE = "com.android.systemui";
+
     private static final String ROOT_DIR = "/data/local/tmp/hidelockwidgets";
     private static final String CONFIG_FILE = ROOT_DIR + "/config.txt";
     private static final String SNAPSHOT_FILE = ROOT_DIR + "/widget_snapshot.png";
@@ -45,13 +46,17 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String SYSTEMUI_WIDGET_PROVIDER_FILE = ROOT_DIR + "/systemui_widget_provider.txt";
     private static final String DISABLE_LIVE_FILE = ROOT_DIR + "/disable_live";
     private static final String DISABLE_ALL_FILE = ROOT_DIR + "/disable_all";
+
     private static final int SYSTEMUI_HOST_ID = 4096;
-    private static final int MAX_SYSTEM_SERVER_LOGS = 60;
+    private static final int MAX_SYSTEM_SERVER_LOGS = 80;
 
     private static final String OVERLAY_TAG = "hidelockwidgets_widget";
     private static final String ICONIFY_LOCKSCREEN_WIDGET_TAG = "iconify_lockscreen_widget";
     private static final String COMBINED_OVERLAY_TAG = OVERLAY_TAG + "|" + ICONIFY_LOCKSCREEN_WIDGET_TAG;
+
+    // Iconify source uses: background=-2, lockscreen items=-1, depth foreground=-0.5.
     private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;
+    private static final float ICONIFY_FOREGROUND_Z = -0.5f;
 
     private static final String[] CLOCK_IDS = new String[] {
             "lockscreen_clock_view",
@@ -336,7 +341,11 @@ public class MainHook implements IXposedHookLoadPackage {
         try {
             hideNow(root);
             hideKeyguardClockContainerLikeIconify(root);
-            addWidgetToStatusContainer(root);
+
+            // Only KeyguardStatusView is used as the trigger. The overlay is mounted into keyguard_root_view below.
+            if (root.getClass().getName().contains("KeyguardStatusView")) {
+                addWidgetToLockscreen(root);
+            }
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": applyAll error " + t);
         }
@@ -411,28 +420,33 @@ public class MainHook implements IXposedHookLoadPackage {
         }
     }
 
-    private static void addWidgetToStatusContainer(View root) {
+    private static void addWidgetToLockscreen(final View triggerRoot) {
         try {
-            Context context = root.getContext();
-            Config config = readConfig();
+            final Context context = triggerRoot.getContext();
+            final Config config = readConfig();
             if (config == null) return;
 
-            ViewGroup statusContainer = getStatusViewContainer(root);
-            if (statusContainer == null) {
-                XposedBridge.log(TAG + ": statusContainer is null");
+            final ViewGroup fallback = getStatusViewContainer(triggerRoot);
+            if (fallback == null) {
+                XposedBridge.log(TAG + ": statusContainer fallback is null");
                 return;
             }
 
-            disableClipping(statusContainer);
-            View already = findExistingOverlay(statusContainer);
-            if (already != null) {
-                applyIconifyStableDepthCompat(already);
-                applyOverlayParams(context, already, config);
+            final ViewGroup overlayParent = getIconifyOverlayParent(triggerRoot, fallback);
+            disableClipping(overlayParent);
+
+            View existing = findExistingOverlay(overlayParent);
+            if (existing != null) {
+                applyIconifyStableDepthCompat(existing);
+                applyOverlayParams(context, existing, config);
+                scheduleDepthRepair(triggerRoot, existing);
                 return;
             }
 
-            removeOldOverlays(statusContainer);
-            FrameLayout overlay = new FrameLayout(context);
+            removeOldOverlays(fallback);
+            if (overlayParent != fallback) removeOldOverlays(overlayParent);
+
+            final FrameLayout overlay = new FrameLayout(context);
             overlay.setTag(COMBINED_OVERLAY_TAG);
             overlay.setId(View.generateViewId());
             overlay.setClipChildren(false);
@@ -458,11 +472,102 @@ public class MainHook implements IXposedHookLoadPackage {
             }
 
             overlay.addView(widgetView, new FrameLayout.LayoutParams(-1, -1));
-            statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));
+            addOverlayToDepthParent(overlayParent, overlay, makeParentLayoutParams(overlayParent, widthPx, heightPx));
             applyOverlayParams(context, overlay, config);
-            XposedBridge.log(TAG + ": widget overlay added, provider=" + config.provider);
+            scheduleDepthRepair(triggerRoot, overlay);
+            XposedBridge.log(TAG + ": widget overlay added into Iconify depth parent, provider=" + config.provider);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": addWidgetToStatusContainer error " + t);
+            XposedBridge.log(TAG + ": addWidgetToLockscreen error " + t);
+        }
+    }
+
+    private static ViewGroup getIconifyOverlayParent(View triggerRoot, ViewGroup fallback) {
+        try {
+            View wholeRoot = triggerRoot.getRootView();
+            int keyguardRootId = triggerRoot.getResources().getIdentifier("keyguard_root_view", "id", SYSTEMUI_PACKAGE);
+            if (keyguardRootId != 0) {
+                View keyguardRoot = wholeRoot.findViewById(keyguardRootId);
+                if (keyguardRoot instanceof ViewGroup) {
+                    XposedBridge.log(TAG + ": keyguard_root_view for Iconify overlay found id=" + keyguardRootId);
+                    return (ViewGroup) keyguardRoot;
+                }
+            }
+
+            View foreground = findTaggedContainsRecursive(wholeRoot, "iconify_depth_wallpaper_foreground");
+            if (foreground != null && foreground.getParent() instanceof ViewGroup) {
+                XposedBridge.log(TAG + ": Iconify foreground parent for overlay found");
+                return (ViewGroup) foreground.getParent();
+            }
+
+            XposedBridge.log(TAG + ": keyguard_root_view for Iconify overlay NOT found, using fallback=" + fallback.getClass().getName());
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": getIconifyOverlayParent error " + t);
+        }
+        return fallback;
+    }
+
+    private static void addOverlayToDepthParent(ViewGroup parent, View overlay, ViewGroup.LayoutParams lp) {
+        try {
+            int foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");
+            if (foregroundIndex >= 0) {
+                parent.addView(overlay, foregroundIndex, lp);
+                XposedBridge.log(TAG + ": overlay inserted before Iconify foreground index=" + foregroundIndex);
+            } else {
+                parent.addView(overlay, 0, lp);
+                XposedBridge.log(TAG + ": overlay inserted at index=0 in depth parent, childCount=" + parent.getChildCount());
+            }
+            overlay.setZ(ICONIFY_LOCKSCREEN_ITEM_Z);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": addOverlayToDepthParent error " + t);
+            try {
+                parent.addView(overlay, lp);
+                overlay.setZ(ICONIFY_LOCKSCREEN_ITEM_Z);
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static void scheduleDepthRepair(final View triggerRoot, final View overlay) {
+        try {
+            Runnable repair = new Runnable() {
+                @Override
+                public void run() {
+                    repairDepthLayer(triggerRoot, overlay);
+                }
+            };
+            overlay.postDelayed(repair, 200L);
+            overlay.postDelayed(repair, 700L);
+            overlay.postDelayed(repair, 1500L);
+            overlay.postDelayed(repair, 3000L);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": scheduleDepthRepair error " + t);
+        }
+    }
+
+    private static void repairDepthLayer(View triggerRoot, View overlay) {
+        try {
+            if (overlay == null) return;
+            ViewGroup fallback = getStatusViewContainer(triggerRoot);
+            if (fallback == null) return;
+            ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);
+            ViewParent currentParent = overlay.getParent();
+            if (currentParent != wantedParent && wantedParent != null) {
+                if (currentParent instanceof ViewGroup) {
+                    ((ViewGroup) currentParent).removeView(overlay);
+                }
+                addOverlayToDepthParent(wantedParent, overlay, makeParentLayoutParams(wantedParent, overlay.getLayoutParams() != null ? overlay.getLayoutParams().width : -2, overlay.getLayoutParams() != null ? overlay.getLayoutParams().height : -2));
+                XposedBridge.log(TAG + ": overlay moved into Iconify depth parent by repair");
+            }
+            applyIconifyStableDepthCompat(overlay);
+
+            View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");
+            if (foreground != null) {
+                foreground.setZ(ICONIFY_FOREGROUND_Z);
+                XposedBridge.log(TAG + ": depth repair found foreground, overlayZ=" + overlay.getZ() + " fgZ=" + foreground.getZ());
+            } else {
+                XposedBridge.log(TAG + ": depth repair foreground not found, overlayParent=" + (overlay.getParent() == null ? "null" : overlay.getParent().getClass().getName()));
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": repairDepthLayer error " + t);
         }
     }
 
@@ -490,6 +595,31 @@ public class MainHook implements IXposedHookLoadPackage {
             }
         }
         return null;
+    }
+
+    private static View findTaggedContainsRecursive(View view, String token) {
+        if (view == null || token == null) return null;
+        Object currentTag = view.getTag();
+        if (currentTag != null && String.valueOf(currentTag).contains(token)) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findTaggedContainsRecursive(group.getChildAt(i), token);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static int findDirectChildIndexWithTag(ViewGroup parent, String token) {
+        if (parent == null || token == null) return -1;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            Object tag = parent.getChildAt(i).getTag();
+            if (tag == null) continue;
+            String text = String.valueOf(tag);
+            if (text.contains(token)) return i;
+        }
+        return -1;
     }
 
     private static void applyIconifyStableDepthCompat(final View overlay) {
@@ -577,6 +707,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 writeSystemUiWidgetProvider(config.provider);
             }
 
+            updateSystemUiWidgetSizeOptions(manager, savedId, config);
             AppWidgetProviderInfo info = manager.getAppWidgetInfo(savedId);
             if (info == null) {
                 deleteWidgetIdQuietly(savedId);
@@ -599,6 +730,21 @@ public class MainHook implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": createSystemUiLiveWidgetView error " + t);
             return null;
+        }
+    }
+
+    private static void updateSystemUiWidgetSizeOptions(AppWidgetManager manager, int appWidgetId, Config config) {
+        try {
+            if (manager == null || appWidgetId <= 0 || config == null) return;
+            Bundle options = new Bundle();
+            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, config.widthDp);
+            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, config.heightDp);
+            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, config.widthDp);
+            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, config.heightDp);
+            manager.updateAppWidgetOptions(appWidgetId, options);
+            XposedBridge.log(TAG + ": updated SystemUI widget options id=" + appWidgetId + " w=" + config.widthDp + " h=" + config.heightDp);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": updateSystemUiWidgetSizeOptions error " + t);
         }
     }
 
