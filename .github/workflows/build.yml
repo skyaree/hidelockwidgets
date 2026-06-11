@@ -82,10 +82,9 @@ jobs:
               helper = '\n'.join([
                   '    private static ViewGroup getCustomDepthOverlayParent(View triggerRoot, ViewGroup fallback) {',
                   '        try {',
-                  '            View root = triggerRoot == null ? null : triggerRoot.getRootView();',
-                  '            if (root instanceof ViewGroup) {',
-                  '                XposedBridge.log(TAG + ": using own depth wallpaper root=" + root.getClass().getName());',
-                  '                return (ViewGroup) root;',
+                  '            if (triggerRoot instanceof ViewGroup) {',
+                  '                XposedBridge.log(TAG + ": using own depth wallpaper root=" + triggerRoot.getClass().getName());',
+                  '                return (ViewGroup) triggerRoot;',
                   '            }',
                   '        } catch (Throwable t) {',
                   '            XposedBridge.log(TAG + ": getCustomDepthOverlayParent error " + t);',
