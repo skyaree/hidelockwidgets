@@ -28,12 +28,60 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Ensure Xposed asset exists
+      - name: Patch source before build
         run: |
           mkdir -p app/src/main/assets
           printf '%s\n' 'com.squeeare.hidelockwidgets.MainHook' > app/src/main/assets/xposed_init
-          echo '--- xposed_init ---'
-          cat app/src/main/assets/xposed_init
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          hook = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java')
+          s = hook.read_text()
+          s = s.replace(
+              'hideKeyguardClockContainerLikeIconify(root);\n            addWidgetToStatusContainer(root);',
+              'hideKeyguardClockContainerLikeIconify(root);\n            if (root.getClass().getName().contains("KeyguardStatusView")) {\n                addWidgetToStatusContainer(root);\n            }'
+          )
+          s = s.replace(
+              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;',
+              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = 10.0f;'
+          )
+          s = s.replace(
+              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
+              'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            overlay.bringToFront();\n            applyOverlayParams(context, overlay, config);'
+          )
+          hook.write_text(s)
+
+          activity = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainActivity.java')
+          s = activity.read_text()
+          if 'import android.os.Bundle;' in s and 'AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH' in s and 'private void updateWidgetSizeOptions(int appWidgetId)' not in s:
+              method = '''\n    private void updateWidgetSizeOptions(int appWidgetId) {\n        try {\n            if (appWidgetId <= 0 || appWidgetManager == null) return;\n            Bundle options = new Bundle();\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, heightDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, heightDp);\n            appWidgetManager.updateAppWidgetOptions(appWidgetId, options);\n        } catch (Throwable t) {\n            toast("Widget size options error:\\n" + t);\n        }\n    }\n'''
+              s = s.replace('\n    private void configureOrSave(int appWidgetId) {', method + '\n    private void configureOrSave(int appWidgetId) {')
+
+          replacements = {
+              'pendingWidgetId = appWidgetHost.allocateAppWidgetId();\n        Intent pickIntent':
+                  'pendingWidgetId = appWidgetHost.allocateAppWidgetId();\n        updateWidgetSizeOptions(pendingWidgetId);\n        Intent pickIntent',
+              'pendingWidgetId = appWidgetId;\n                Toast.makeText':
+                  'pendingWidgetId = appWidgetId;\n                updateWidgetSizeOptions(appWidgetId);\n                Toast.makeText',
+              'private void configureOrSave(int appWidgetId) {\n        AppWidgetProviderInfo info':
+                  'private void configureOrSave(int appWidgetId) {\n        updateWidgetSizeOptions(appWidgetId);\n        AppWidgetProviderInfo info',
+              'private void saveWidget(int appWidgetId) {\n        AppWidgetProviderInfo info':
+                  'private void saveWidget(int appWidgetId) {\n        updateWidgetSizeOptions(appWidgetId);\n        AppWidgetProviderInfo info',
+              'private void createPreview(int appWidgetId, AppWidgetProviderInfo info) {\n        try {':
+                  'private void createPreview(int appWidgetId, AppWidgetProviderInfo info) {\n        updateWidgetSizeOptions(appWidgetId);\n        try {'
+          }
+          for a, b in replacements.items():
+              s = s.replace(a, b)
+          activity.write_text(s)
+
+          print('--- xposed_init ---')
+          print(Path('app/src/main/assets/xposed_init').read_text())
+          print('--- patch checks ---')
+          print('hook visible z:', '10.0f' in hook.read_text())
+          print('only KeyguardStatusView:', 'contains("KeyguardStatusView")' in hook.read_text())
+          print('bringToFront:', 'bringToFront' in hook.read_text())
+          print('widget sizing:', 'updateWidgetSizeOptions' in activity.read_text())
+          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
