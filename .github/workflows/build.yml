@@ -43,14 +43,27 @@ jobs:
               'hideKeyguardClockContainerLikeIconify(root);\n            addWidgetToStatusContainer(root);',
               'hideKeyguardClockContainerLikeIconify(root);\n            if (root.getClass().getName().contains("KeyguardStatusView")) {\n                addWidgetToStatusContainer(root);\n            }'
           )
+
+          # Depth mode: Iconify background is below, foreground/subject is above.
+          # Widget must behave like normal Iconify lockscreen item, not like top overlay.
           s = s.replace(
               'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;',
-              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = 10.0f;'
+              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;'
           )
           s = s.replace(
-              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
-              'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            overlay.bringToFront();\n            applyOverlayParams(context, overlay, config);'
+              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = 10.0f;',
+              'private static final float ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f;'
           )
+
+          s = s.replace(
+              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);',
+              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
+          )
+          s = s.replace(
+              'statusContainer.addView(overlay, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            overlay.bringToFront();\n            applyOverlayParams(context, overlay, config);',
+              'statusContainer.addView(overlay, 0, makeParentLayoutParams(statusContainer, widthPx, heightPx));\n            applyOverlayParams(context, overlay, config);'
+          )
+          s = s.replace('            overlay.bringToFront();\n', '')
 
           if 'private static void updateSystemUiWidgetSizeOptions(' not in s:
               method = '''\n    private static void updateSystemUiWidgetSizeOptions(AppWidgetManager manager, int appWidgetId, Config config) {\n        try {\n            if (manager == null || appWidgetId <= 0 || config == null) return;\n            Bundle options = new Bundle();\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, config.widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, config.heightDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, config.widthDp);\n            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, config.heightDp);\n            manager.updateAppWidgetOptions(appWidgetId, options);\n            XposedBridge.log(TAG + ": updated SystemUI widget options id=" + appWidgetId + " w=" + config.widthDp + " h=" + config.heightDp);\n        } catch (Throwable t) {\n            XposedBridge.log(TAG + ": updateSystemUiWidgetSizeOptions error " + t);\n        }\n    }\n'''
@@ -96,14 +109,16 @@ jobs:
               s = s.replace(a, b)
           activity.write_text(s)
 
+          ht = hook.read_text()
+          at = activity.read_text()
           print('--- xposed_init ---')
           print(Path('app/src/main/assets/xposed_init').read_text())
           print('--- patch checks ---')
-          print('hook visible z:', '10.0f' in hook.read_text())
-          print('only KeyguardStatusView:', 'contains("KeyguardStatusView")' in hook.read_text())
-          print('bringToFront:', 'bringToFront' in hook.read_text())
-          print('preview sizing:', 'updateWidgetSizeOptions' in activity.read_text())
-          print('systemui sizing:', 'updateSystemUiWidgetSizeOptions' in hook.read_text())
+          print('depth z -1:', 'ICONIFY_LOCKSCREEN_ITEM_Z = -1.0f' in ht)
+          print('no bringToFront:', 'bringToFront' not in ht)
+          print('only KeyguardStatusView:', 'contains("KeyguardStatusView")' in ht)
+          print('preview sizing:', 'updateWidgetSizeOptions' in at)
+          print('systemui sizing:', 'updateSystemUiWidgetSizeOptions' in ht)
           PY
 
       - name: Set up Gradle
