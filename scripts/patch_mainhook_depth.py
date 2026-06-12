@@ -51,11 +51,6 @@ if 'private static boolean hasShadeContent(View view)' not in s:
         catch (Throwable t) { XposedBridge.log(TAG + ": cleanupOwnDepthBackground error " + t); }
     }
 
-    private static int dp(Context context, int value) {
-        try { return (int) (value * context.getResources().getDisplayMetrics().density + 0.5f); }
-        catch (Throwable ignored) { return value; }
-    }
-
     private static void ensureOwnDepthForeground(Context context, ViewGroup parent, Config config) {
         try {
             if (context == null || parent == null || config == null || !config.customDepth) return;
