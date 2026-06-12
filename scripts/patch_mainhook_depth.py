@@ -29,7 +29,7 @@ s = s.replace('config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT
               'config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            config.customDepth = parseBoolean(properties.getProperty("custom_depth"), true);\n            config.depthBackgroundPath = properties.getProperty("depth_background", DEPTH_BACKGROUND_FILE);\n            config.depthForegroundPath = properties.getProperty("depth_foreground", DEPTH_FOREGROUND_FILE);\n            XposedBridge.log(TAG + ": config provider="')
 s = s.replace('String snapshotPath;\n    }', 'String snapshotPath;\n        boolean customDepth;\n        String depthBackgroundPath;\n        String depthForegroundPath;\n    }')
 
-if 'private static void installLockscreenOnlyVisibility(Context context, View triggerRoot, View overlay)' not in s:
+if 'private static boolean hasShadeContent(View view)' not in s:
     helper = '''    private static ViewGroup getOwnWidgetParent(View triggerRoot, ViewGroup fallback) {
         try {
             if (triggerRoot instanceof ViewGroup) {
@@ -59,6 +59,7 @@ if 'private static void installLockscreenOnlyVisibility(Context context, View tr
             int[] loc = new int[2]; parent.getLocationOnScreen(loc);
             View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.FIT_XY, DEPTH_FOREGROUND_TAG);
             if (fg == null) { XposedBridge.log(TAG + ": own depth foreground missing path=" + config.depthForegroundPath); return; }
+            fg.setVisibility(View.GONE);
             fg.setZ(2.0f); fg.setTranslationX(-loc[0]); fg.setTranslationY(-loc[1]);
             parent.addView(fg, new ViewGroup.LayoutParams(dm.widthPixels, dm.heightPixels));
             installLockscreenOnlyVisibility(context, parent, fg);
@@ -69,6 +70,7 @@ if 'private static void installLockscreenOnlyVisibility(Context context, View tr
     private static void installLockscreenOnlyVisibility(final Context context, final View triggerRoot, final View overlay) {
         try {
             if (overlay == null) return;
+            overlay.setVisibility(View.GONE);
             final Runnable r = new Runnable() { @Override public void run() { updateLockscreenOnlyVisibility(context, triggerRoot); } };
             overlay.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() { @Override public void onViewAttachedToWindow(View v) { r.run(); } @Override public void onViewDetachedFromWindow(View v) { } });
             overlay.addOnLayoutChangeListener(new View.OnLayoutChangeListener() { @Override public void onLayoutChange(View v, int a, int b, int c, int d, int e, int f, int g, int h) { r.run(); } });
@@ -76,18 +78,36 @@ if 'private static void installLockscreenOnlyVisibility(Context context, View tr
         } catch (Throwable t) { XposedBridge.log(TAG + ": installLockscreenOnlyVisibility error " + t); }
     }
 
+    private static boolean hasShadeContent(View view) {
+        if (view == null) return false;
+        try {
+            String n = view.getClass().getName();
+            if (n != null && (n.contains("NotificationStackScrollLayout") || n.contains("ExpandableNotificationRow")) && view.isShown() && view.getHeight() > 80) return true;
+            if (view instanceof ViewGroup) {
+                ViewGroup g = (ViewGroup) view;
+                for (int i = 0; i < g.getChildCount(); i++) if (hasShadeContent(g.getChildAt(i))) return true;
+            }
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
     private static void updateLockscreenOnlyVisibility(Context context, View triggerRoot) {
         try {
-            boolean show = false;
-            try { android.app.KeyguardManager km = (android.app.KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE); show = km != null && km.isKeyguardLocked(); } catch (Throwable ignored) { }
-            int vis = show ? View.VISIBLE : View.GONE;
+            boolean locked = false;
+            try { android.app.KeyguardManager km = (android.app.KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE); locked = km != null && km.isKeyguardLocked(); } catch (Throwable ignored) { }
             View root = triggerRoot == null ? null : triggerRoot.getRootView(); if (root == null) return;
+            android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+            int[] loc = new int[2]; if (triggerRoot != null) triggerRoot.getLocationOnScreen(loc);
+            boolean stable = triggerRoot != null && triggerRoot.isShown() && loc[1] >= 0 && loc[1] < (dm.heightPixels / 2);
+            boolean shade = hasShadeContent(root);
+            boolean show = locked && stable && !shade;
+            int vis = show ? View.VISIBLE : View.GONE;
             View overlay = findTaggedContainsRecursive(root, OVERLAY_TAG);
             View fg = findTaggedRecursive(root, DEPTH_FOREGROUND_TAG);
             if (overlay != null) overlay.setVisibility(vis);
             if (fg != null) fg.setVisibility(vis);
             if (!show) cleanupOwnDepthBackground(triggerRoot);
-            XposedBridge.log(TAG + ": own depth visibility show=" + show + " overlay=" + (overlay != null) + " foreground=" + (fg != null));
+            XposedBridge.log(TAG + ": own depth visibility show=" + show + " locked=" + locked + " stable=" + stable + " shade=" + shade + " locY=" + loc[1] + " overlay=" + (overlay != null) + " foreground=" + (fg != null));
         } catch (Throwable t) { XposedBridge.log(TAG + ": updateLockscreenOnlyVisibility error " + t); }
     }
 
