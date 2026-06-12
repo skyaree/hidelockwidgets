@@ -51,6 +51,11 @@ if 'private static boolean hasShadeContent(View view)' not in s:
         catch (Throwable t) { XposedBridge.log(TAG + ": cleanupOwnDepthBackground error " + t); }
     }
 
+    private static int dp(Context context, int value) {
+        try { return (int) (value * context.getResources().getDisplayMetrics().density + 0.5f); }
+        catch (Throwable ignored) { return value; }
+    }
+
     private static void ensureOwnDepthForeground(Context context, ViewGroup parent, Config config) {
         try {
             if (context == null || parent == null || config == null || !config.customDepth) return;
@@ -83,10 +88,7 @@ if 'private static boolean hasShadeContent(View view)' not in s:
         try {
             String n = view.getClass().getName();
             if (n != null && (n.contains("NotificationStackScrollLayout") || n.contains("ExpandableNotificationRow")) && view.isShown() && view.getHeight() > 80) return true;
-            if (view instanceof ViewGroup) {
-                ViewGroup g = (ViewGroup) view;
-                for (int i = 0; i < g.getChildCount(); i++) if (hasShadeContent(g.getChildAt(i))) return true;
-            }
+            if (view instanceof ViewGroup) { ViewGroup g = (ViewGroup) view; for (int i = 0; i < g.getChildCount(); i++) if (hasShadeContent(g.getChildAt(i))) return true; }
         } catch (Throwable ignored) { }
         return false;
     }
@@ -96,9 +98,9 @@ if 'private static boolean hasShadeContent(View view)' not in s:
             boolean locked = false;
             try { android.app.KeyguardManager km = (android.app.KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE); locked = km != null && km.isKeyguardLocked(); } catch (Throwable ignored) { }
             View root = triggerRoot == null ? null : triggerRoot.getRootView(); if (root == null) return;
-            android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
             int[] loc = new int[2]; if (triggerRoot != null) triggerRoot.getLocationOnScreen(loc);
-            boolean stable = triggerRoot != null && triggerRoot.isShown() && loc[1] >= 0 && loc[1] < (dm.heightPixels / 2);
+            int maxStableY = dp(context, 420);
+            boolean stable = triggerRoot != null && triggerRoot.isShown() && loc[1] >= 0 && loc[1] <= maxStableY;
             boolean shade = hasShadeContent(root);
             boolean show = locked && stable && !shade;
             int vis = show ? View.VISIBLE : View.GONE;
@@ -107,7 +109,7 @@ if 'private static boolean hasShadeContent(View view)' not in s:
             if (overlay != null) overlay.setVisibility(vis);
             if (fg != null) fg.setVisibility(vis);
             if (!show) cleanupOwnDepthBackground(triggerRoot);
-            XposedBridge.log(TAG + ": own depth visibility show=" + show + " locked=" + locked + " stable=" + stable + " shade=" + shade + " locY=" + loc[1] + " overlay=" + (overlay != null) + " foreground=" + (fg != null));
+            XposedBridge.log(TAG + ": own depth visibility show=" + show + " locked=" + locked + " stable=" + stable + " shade=" + shade + " locY=" + loc[1] + " maxStableY=" + maxStableY + " overlay=" + (overlay != null) + " foreground=" + (fg != null));
         } catch (Throwable t) { XposedBridge.log(TAG + ": updateLockscreenOnlyVisibility error " + t); }
     }
 
