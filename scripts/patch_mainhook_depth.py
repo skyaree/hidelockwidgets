@@ -55,6 +55,12 @@ helper_marker = 'private static void cleanupOwnDepthBackground(View triggerRoot)
 if helper_marker not in s:
     helper = '''    private static ViewGroup getOwnWidgetParent(View triggerRoot, ViewGroup fallback) {
         try {
+            ViewParent rawParent = triggerRoot == null ? null : triggerRoot.getParent();
+            if (rawParent instanceof ViewGroup) {
+                ViewGroup parent = (ViewGroup) rawParent;
+                XposedBridge.log(TAG + ": using own widget/foreground parent=" + parent.getClass().getName() + " from trigger=" + triggerRoot.getClass().getName());
+                return parent;
+            }
             if (triggerRoot instanceof ViewGroup) {
                 XposedBridge.log(TAG + ": using own widget/foreground parent=" + triggerRoot.getClass().getName());
                 return (ViewGroup) triggerRoot;
@@ -95,7 +101,7 @@ if helper_marker not in s:
             android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
             int[] loc = new int[2];
             parent.getLocationOnScreen(loc);
-            View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.CENTER_CROP, DEPTH_FOREGROUND_TAG);
+            View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.FIT_XY, DEPTH_FOREGROUND_TAG);
             if (fg == null) {
                 XposedBridge.log(TAG + ": own depth foreground missing path=" + config.depthForegroundPath);
                 return;
