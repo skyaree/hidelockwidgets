@@ -1,4 +1,5 @@
 from pathlib import Path
+
 p = Path('app/src/main/java/com/squeeare/hidelockwidgets/MainHook.java')
 s = p.read_text()
 
@@ -12,8 +13,7 @@ if 'DEPTH_BACKGROUND_FILE' not in s:
 
 s = s.replace('final ViewGroup overlayParent = getIconifyOverlayParent(triggerRoot, fallback);\n            disableClipping(overlayParent);',
               'final ViewGroup overlayParent = getOwnWidgetParent(triggerRoot, fallback);\n            disableClipping(overlayParent);\n            cleanupOwnDepthBackground(triggerRoot);\n            ensureOwnDepthForeground(context, overlayParent, config);')
-s = s.replace('ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);',
-              'ViewGroup wantedParent = getOwnWidgetParent(triggerRoot, fallback);')
+s = s.replace('ViewGroup wantedParent = getIconifyOverlayParent(triggerRoot, fallback);', 'ViewGroup wantedParent = getOwnWidgetParent(triggerRoot, fallback);')
 s = s.replace('int foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");',
               'int foregroundIndex = findDirectChildIndexWithTag(parent, DEPTH_FOREGROUND_TAG);\n            if (foregroundIndex < 0) foregroundIndex = findDirectChildIndexWithTag(parent, "iconify_depth_wallpaper_foreground");')
 s = s.replace('View foreground = findTaggedContainsRecursive(triggerRoot.getRootView(), "iconify_depth_wallpaper_foreground");',
@@ -27,19 +27,15 @@ s = s.replace('applyOverlayParams(context, existing, config);\n                s
               'applyOverlayParams(context, existing, config);\n                installLockscreenOnlyVisibility(context, triggerRoot, existing);\n                scheduleDepthRepair(triggerRoot, existing);')
 s = s.replace('config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            XposedBridge.log(TAG + ": config provider="',
               'config.snapshotPath = properties.getProperty("snapshot", SNAPSHOT_FILE);\n            config.customDepth = parseBoolean(properties.getProperty("custom_depth"), true);\n            config.depthBackgroundPath = properties.getProperty("depth_background", DEPTH_BACKGROUND_FILE);\n            config.depthForegroundPath = properties.getProperty("depth_foreground", DEPTH_FOREGROUND_FILE);\n            XposedBridge.log(TAG + ": config provider="')
-s = s.replace('String snapshotPath;\n    }',
-              'String snapshotPath;\n        boolean customDepth;\n        String depthBackgroundPath;\n        String depthForegroundPath;\n    }')
+s = s.replace('String snapshotPath;\n    }', 'String snapshotPath;\n        boolean customDepth;\n        String depthBackgroundPath;\n        String depthForegroundPath;\n    }')
 
 if 'private static void installLockscreenOnlyVisibility(Context context, View triggerRoot, View overlay)' not in s:
     helper = '''    private static ViewGroup getOwnWidgetParent(View triggerRoot, ViewGroup fallback) {
         try {
-            ViewParent p = triggerRoot == null ? null : triggerRoot.getParent();
-            if (p instanceof ViewGroup) {
-                ViewGroup g = (ViewGroup) p;
-                XposedBridge.log(TAG + ": using own widget/foreground parent=" + g.getClass().getName() + " from trigger=" + triggerRoot.getClass().getName());
-                return g;
+            if (triggerRoot instanceof ViewGroup) {
+                XposedBridge.log(TAG + ": using own widget/foreground parent=" + triggerRoot.getClass().getName());
+                return (ViewGroup) triggerRoot;
             }
-            if (triggerRoot instanceof ViewGroup) return (ViewGroup) triggerRoot;
         } catch (Throwable t) { XposedBridge.log(TAG + ": getOwnWidgetParent error " + t); }
         return fallback;
     }
@@ -58,8 +54,7 @@ if 'private static void installLockscreenOnlyVisibility(Context context, View tr
     private static void ensureOwnDepthForeground(Context context, ViewGroup parent, Config config) {
         try {
             if (context == null || parent == null || config == null || !config.customDepth) return;
-            disableClipping(parent);
-            removeTaggedViews(parent, DEPTH_FOREGROUND_TAG);
+            disableClipping(parent); removeTaggedViews(parent, DEPTH_FOREGROUND_TAG);
             android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
             int[] loc = new int[2]; parent.getLocationOnScreen(loc);
             View fg = createDepthImageView(context, config.depthForegroundPath, ImageView.ScaleType.FIT_XY, DEPTH_FOREGROUND_TAG);
@@ -75,13 +70,8 @@ if 'private static void installLockscreenOnlyVisibility(Context context, View tr
         try {
             if (overlay == null) return;
             final Runnable r = new Runnable() { @Override public void run() { updateLockscreenOnlyVisibility(context, triggerRoot); } };
-            overlay.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-                @Override public void onViewAttachedToWindow(View v) { r.run(); }
-                @Override public void onViewDetachedFromWindow(View v) { }
-            });
-            overlay.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-                @Override public void onLayoutChange(View v, int a, int b, int c, int d, int e, int f, int g, int h) { r.run(); }
-            });
+            overlay.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() { @Override public void onViewAttachedToWindow(View v) { r.run(); } @Override public void onViewDetachedFromWindow(View v) { } });
+            overlay.addOnLayoutChangeListener(new View.OnLayoutChangeListener() { @Override public void onLayoutChange(View v, int a, int b, int c, int d, int e, int f, int g, int h) { r.run(); } });
             overlay.post(r); overlay.postDelayed(r,150L); overlay.postDelayed(r,500L); overlay.postDelayed(r,1200L); overlay.postDelayed(r,2500L);
         } catch (Throwable t) { XposedBridge.log(TAG + ": installLockscreenOnlyVisibility error " + t); }
     }
@@ -102,12 +92,8 @@ if 'private static void installLockscreenOnlyVisibility(Context context, View tr
     }
 
     private static View createDepthImageView(Context context, String path, ImageView.ScaleType scaleType, String tag) {
-        try {
-            if (path == null || path.length() == 0) return null;
-            File file = new File(path); if (!file.exists()) return null;
-            Bitmap bitmap = BitmapFactory.decodeFile(path); if (bitmap == null) return null;
-            ImageView v = new ImageView(context); v.setTag(tag); v.setImageBitmap(bitmap); v.setScaleType(scaleType); v.setAdjustViewBounds(false); v.setClipToOutline(false); return v;
-        } catch (Throwable t) { XposedBridge.log(TAG + ": createDepthImageView error " + path + " / " + t); return null; }
+        try { if (path == null || path.length() == 0) return null; File f = new File(path); if (!f.exists()) return null; Bitmap b = BitmapFactory.decodeFile(path); if (b == null) return null; ImageView v = new ImageView(context); v.setTag(tag); v.setImageBitmap(b); v.setScaleType(scaleType); v.setAdjustViewBounds(false); v.setClipToOutline(false); return v; }
+        catch (Throwable t) { XposedBridge.log(TAG + ": createDepthImageView error " + path + " / " + t); return null; }
     }
 
 '''
